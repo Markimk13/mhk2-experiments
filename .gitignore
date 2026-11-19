@@ -1,0 +1,10 @@
+# release zips, built by tools/make_release.py
+dist/
+# builds of tools/patch_200cc.py
+out/
+# never commit game files
+*.exe
+*.dat
+__pycache__/
+*.pyc
+.idea/
