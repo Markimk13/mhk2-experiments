@@ -4,7 +4,8 @@
 usage: make_release.py <original MHK2-XXL.exe> [dist dir]
 
 Runs patch_200cc.py once per language and writes dist/mhk2-patch-<version>-<lang>.zip, each with
-MHK2-XXL.exe, data/MK2/text-20.csv and a short install note. The exe is the same in all of them.
+MHK2-XXL.exe, data/MK2/text-20.csv, tools/patch_200cc.py (for --unlock and the other commands) and
+a short install note. The exe is the same in all of them.
 """
 import os
 import sys
@@ -17,16 +18,30 @@ import patch_200cc as P
 NOTES = {
     "de": "Moorhuhn Kart 2 XXL - Patch %s (200 cc, 250 cc, Tuning, 60-FPS-Fahrphysik, eigene Phantome)\r\n"
           "\r\n"
-          "Installation: MHK2-XXL.exe und den Ordner data in den Spielordner kopieren\r\n"
-          "(vorher die originale MHK2-XXL.exe sichern). Beide Dateien sind noetig.\r\n"
+          "Installation: den Inhalt des ZIPs in den Spielordner entpacken\r\n"
+          "(vorher die originale MHK2-XXL.exe sichern). exe und data sind noetig.\r\n"
+          "\r\n"
+          "Klassen freischalten (Python 3 noetig; im Spielordner, das Spiel vorher beenden):\r\n"
+          "  py tools\\patch_200cc.py --unlock settings.dat          50 bis 250 cc, je beide Meisterschaften\r\n"
+          "  py tools\\patch_200cc.py --unlock-tuning settings.dat   dasselbe und die Tuning-Klasse\r\n"
+          "Die exe selbst aus der originalen bauen:\r\n"
+          "  py tools\\patch_200cc.py \"<originale MHK2-XXL.exe>\" out\r\n"
+          "\r\n"
           "Beschreibung: https://github.com/Markimk13/mhk2-experiments\r\n"
           "\r\n"
           "Inoffizielles Fan-Projekt. Moorhuhn Kart 2 gehoert seinen Rechteinhabern.\r\n",
     "en": "Moorhuhn Kart 2 XXL - patch %s (200 cc, 250 cc, tuning class, 60 FPS physics, own phantoms)\r\n"
           "\r\n"
-          "Install: copy MHK2-XXL.exe and the folder data into the game folder\r\n"
-          "(keep a backup of the original MHK2-XXL.exe). Both are needed.\r\n"
+          "Install: unpack the zip into the game folder\r\n"
+          "(keep a backup of the original MHK2-XXL.exe). The exe and data are both needed.\r\n"
           "Only the patch's own menu texts are English; the game's own menus stay German.\r\n"
+          "\r\n"
+          "Unlock the classes (needs Python 3; in the game folder, with the game closed):\r\n"
+          "  py tools\\patch_200cc.py --unlock settings.dat          50 to 250 cc, both championships each\r\n"
+          "  py tools\\patch_200cc.py --unlock-tuning settings.dat   the same and the tuning class\r\n"
+          "Build the exe yourself from the original one:\r\n"
+          "  py tools\\patch_200cc.py \"<original MHK2-XXL.exe>\" out\r\n"
+          "\r\n"
           "Description: https://github.com/Markimk13/mhk2-experiments\r\n"
           "\r\n"
           "Unofficial fan project. Moorhuhn Kart 2 belongs to its rights holders.\r\n",
@@ -47,6 +62,7 @@ def main():
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("MHK2-XXL.exe", patched)
             z.writestr("data/MK2/text-20.csv", P.text_overrides(lang).encode("cp1252"))
+            z.write(P.__file__, "tools/patch_200cc.py")       # for --unlock and the other commands
             z.writestr("LIESMICH.txt" if lang == "de" else "README.txt",
                        (NOTES[lang] % P.PATCH_VERSION).encode("cp1252"))
         print("wrote %s (%d bytes, %d patch sites)" % (out, os.path.getsize(out), len(patches)))

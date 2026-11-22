@@ -4,7 +4,7 @@ A fan patch for **Moorhuhn Kart 2 XXL** (German version V1.0, exe build Mar 23 2
 
 - two engine classes, **200 cc** and **250 cc**, next to 50 / 100 / 150 cc,
 - a sixth class, **Tuning**, whose kart and world you set up yourself in the game: gearing,
-  pull, grip, weight, brakes, steering, downforce and gravity,
+  pull, grip, weight, brakes, steering, downforce, gravity and the pace of the computer karts,
 - a switch **60-FPS-Fahrphysik** in the options menu that makes the kart drive at any frame rate
   the way it does at 60 FPS (off by default), and
 - **phantom karts without a helper program**: the game races against your own best run,
@@ -16,6 +16,12 @@ A fan patch for **Moorhuhn Kart 2 XXL** (German version V1.0, exe build Mar 23 2
 > *60-FPS-Fahrphysik* (das Kart fährt bei 200 FPS wie bei 60 FPS) und eigene Phantom-Karts
 > ohne Zusatzprogramm. Installation: das ZIP `…-de.zip` aus den
 > [Releases](../../releases) in den Spielordner entpacken (vorher `MHK2-XXL.exe` sichern).
+> Klassen ohne Meisterschaftssieg freischalten (Python 3, im Spielordner, Spiel beendet):
+> `py tools\patch_200cc.py --unlock settings.dat` (50 bis 250 cc) oder
+> `py tools\patch_200cc.py --unlock-tuning settings.dat` (dazu die Tuning-Klasse); die exe
+> selbst bauen: siehe [Commands](#commands-unlock-the-classes-build-the-exe). Der Patch ist für
+> die deutsche V1.0 von der *10 Jahre Moorhuhn*-CD gemacht; andere exe-Versionen (V1.1,
+> englisch, …): siehe [Other versions of the exe](#other-versions-of-the-exe).
 > Die Beschreibung unten ist auf Englisch; die Menüs im Spiel sind deutsch.
 
 ## Install
@@ -28,6 +34,7 @@ the zip from the [Releases](../../releases) page and unpack it into the game fol
 | --- | --- |
 | `MHK2-XXL.exe` | patched executable |
 | `data\MK2\text-20.csv` | new menu texts (plain text, editable) |
+| `tools\patch_200cc.py` | the patcher, for unlocking the classes and the other [commands](#commands-unlock-the-classes-build-the-exe) (needs Python 3) |
 
 There are two zips with the same exe: `…-de.zip` has the new menu texts in German, `…-en.zip`
 in English. The English one translates only the patch's own texts; the game's own menus stay
@@ -36,20 +43,55 @@ German (*Weiter* = next, *Zurück* = back). The screenshots below show the Germa
 Both files are needed – without the text file the new menu entries read `**TEXT*NOT*FOUND***`.
 When updating from an earlier version of this patch, replace both again. `settings.dat` keeps its
 size, so existing saves keep working. A save from version 1.6 or older gets the gravity (100 %)
-added the first time the tuning class is opened; its tuning values and own presets stay.
+added the first time the tuning class is opened, one from 1.8 or older *Gegner* (100 %); its
+tuning values and own presets stay. Since 1.9 the tuning class has to be unlocked (see below);
+on a save that has not won Meisterschaft 2 in 250 cc it is hidden until then.
 
-If you would rather not run an exe from the internet, build the same files from your own
-original exe with the Python script in this repository: see
-[Building it yourself](#building-it-yourself). It produces the same exe as the release.
+## Commands: unlock the classes, build the exe
+
+The patch comes with one Python script, `tools\patch_200cc.py` (in this repository and in the
+release zips). It needs [Python 3](https://www.python.org/downloads/) and nothing else. Run it
+in the game folder, with the game closed (the game writes `settings.dat` itself while it runs).
+
+**Unlock the classes without winning the championships:**
+
+```powershell
+py tools\patch_200cc.py --unlock settings.dat
+```
+
+opens 50 cc to 250 cc, each with Meisterschaft 2 and tracks 5–8.
+
+```powershell
+py tools\patch_200cc.py --unlock-tuning settings.dat
+```
+
+does the same and opens the tuning class too.
+
+**Other settings in `settings.dat`:** `--physics60 on|off settings.dat` (the 60 FPS switch, see
+below) and `--player-name "Name" settings.dat` (the name in new phantom files, at most 12
+characters).
+
+**Build the patched exe yourself** instead of taking the one from the zip, from your own
+original exe (for example the backup you made):
+
+```powershell
+py tools\patch_200cc.py "<original MHK2-XXL.exe>" out
+```
+
+writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`, the same files as in the release zip;
+copy both into the game folder. Add `--lang en` for the English menu texts. More in
+[Building it yourself](#building-it-yourself).
 
 ## Contents
 
 - [60 FPS physics switch](#60-fps-physics-switch)
 - [Phantom karts](#phantom-karts)
-- [200 cc and 250 cc: unlocking](#200-cc-and-250-cc-unlocking)
+- [Commands: unlock the classes, build the exe](#commands-unlock-the-classes-build-the-exe)
+- [Unlocking 200 cc, 250 cc and Tuning](#unlocking-200-cc-250-cc-and-tuning)
 - [200 cc and 250 cc: what changes](#200-cc-and-250-cc-what-changes)
 - [Tuning class](#tuning-class)
 - [Building it yourself](#building-it-yourself)
+- [Other versions of the exe](#other-versions-of-the-exe)
 - [How it works](#how-it-works)
 - [Good to know](#good-to-know)
 - [How this was made](#how-this-was-made)
@@ -133,26 +175,29 @@ Things to keep in mind:
   archiving the runs and puts its own stamped copy in place; that combination is untested.
 - The files keep this PC's id. The unpatched game on the same PC still skips them.
 
-## 200 cc and 250 cc: unlocking
+## Unlocking 200 cc, 250 cc and Tuning
 
-Both follow the game's own chain: win **Meisterschaft 2 in 150 cc** to open 200 cc, and
-**Meisterschaft 2 in 200 cc** to open 250 cc. The win has to happen with a patched exe that
-knows the class above: the stock game never recorded a win in 150 cc, and versions up to 1.2
-never recorded one in 200 cc. Inside each new class, Meisterschaft 2 and tracks 5–8 open up
-after winning Meisterschaft 1, as in the other classes.
+All three follow the game's own chain: win **Meisterschaft 2 in 150 cc** to open 200 cc,
+**Meisterschaft 2 in 200 cc** to open 250 cc, and **Meisterschaft 2 in 250 cc** to open the
+tuning class (*Du hast die Tuning-Klasse freigeschaltet!*). Until then the tuning row of the
+class menu stays empty. The win has to happen with a patched exe that knows the class above:
+the stock game never recorded a win in 150 cc, versions up to 1.2 never recorded one in
+200 cc, and versions up to 1.8 none in 250 cc. Inside 200 cc and 250 cc, Meisterschaft 2 and
+tracks 5–8 open up after winning Meisterschaft 1, as in the other classes; the tuning class
+has all eight tracks and both championships from the start.
 
-To make 200 cc and 250 cc selectable straight away:
+![tuning class unlocked](screenshots/14-unlock-tuning.png)
 
-```powershell
-py tools\patch_200cc.py --unlock "<game folder>\settings.dat"
-```
+To open them straight away use `--unlock` or `--unlock-tuning`, see
+[Commands](#commands-unlock-the-classes-build-the-exe).
 
 ## 200 cc and 250 cc: what changes
 
 ![engine class menu](screenshots/01-engine-menu.png)
 
 - **Menu:** *Leistungsklasse wählen* has six rows now: 200 cc and 250 cc, each greyed out
-  while locked, and Tuning. The rows sit closer together than in the stock game to make room.
+  while locked, and Tuning, which is not shown until it is unlocked. The rows sit closer
+  together than in the stock game to make room.
 - **Speed:** the three stock classes differ in one number, the class factor (0.9 / 1.1 / 1.3).
   It lengthens the gearing; the push at the wheels is the same in all three at the same
   engine speed. So 50, 100 and 150 cc leave the line equally fast and only part once each
@@ -190,7 +235,14 @@ py tools\patch_200cc.py --unlock "<game folder>\settings.dat"
   hold on the first metres. After half a second it is at 16.9 against 18.0, after one second
   it is ahead.
 - **Opponents:** computer karts get the same gearing and pull and drive with each track's
-  150 cc AI settings.
+  150 cc AI settings, but the game holds them back less. In every class it gives them only
+  part throttle while they are near you (in 150 cc 0.9 of full throttle, times a random
+  strength per kart from 1.0 down to 0.6, and less when they are ahead). In 200 cc they lose
+  half of that handicap, in 250 cc all of it: full throttle all the time, like you. Their
+  driving itself (line, braking, steering) is the game's own in every class.
+  Races on the first track (75 s, mean speed of the six computer karts, game units per
+  second): 150 cc 36.5, 200 cc 45.1, 250 cc 48.7 (with version 1.8: 43.2); 250 cc with every
+  limit of the game's table set to full throttle: 50.2, the same within the scatter of a race.
 - **Records:** time trial and championship highscores, phantom karts, the highscore browser
   and the unlock messages work for both classes.
 - **Sound:** both reuse the 150 cc engine sample.
@@ -205,22 +257,41 @@ much weaker pull, so they are easier to beat now.
 ![tuning page](screenshots/08-tuning-page.png)
 
 *Leistungsklasse wählen → Tuning* opens a page of its own before the character menu. The
-class is always open, with all eight tracks and both championships. The page has the row
-*Vorlage*, below it all values that are set, grouped *Kart* and *Welt* as on the page of own
-presets, and buttons: *Kart* and *Welt* open the pages with the values, *Zurücksetzen* puts
-the defaults back, *Eigene Vorlagen* opens your own presets, *Weiter* goes on.
+class opens with a win of Meisterschaft 2 in 250 cc (see *Unlocking* above) and then has all
+eight tracks and both championships. The page has the row *Vorlage*, then the buttons of the
+three groups of values, each with its current values below it, and the buttons
+*Zurücksetzen* (puts the defaults back), *Eigene Vorlagen* (your own presets) and *Weiter*.
 
 - **Kart**: the seven kart values (gearing, pull, grip, weight, brakes, steering, downforce).
-- **Welt**: the gravity. More rows that are not about the kart (computer karts, …) would go here.
+- **Welt**: the gravity.
+- **Gegner**: how fast the computer karts drive (see below).
 
 ![page Kart](screenshots/10-tuning-kart.png) ![page Welt](screenshots/11-tuning-world.png)
+![page Gegner](screenshots/13-tuning-opponents.png)
 
 Each row is changed with ← / → or a click on its arrows; *Zurück* or Esc returns to the
-tuning page.
+tuning page. Below the rows a short text explains the row that is selected.
+
+**Gegner.** The game holds the computer karts back: they drive with part throttle while
+they are near you, each with its own random strength, and slow down further when they are
+ahead. *Tempo* (−100 to 200 % in steps of 25) sets how much of that stays: 0 % is the game's
+handicap (as in 150 cc), 50 % half of it (as in 200 cc), 100 % none (as in 250 cc: full
+throttle all the time, like you). Below 0 they get less throttle still, down to none at
+−100 %, where they creep along at walking pace (the game gives every kart full throttle below
+10 units/s). Above 100 % they keep full throttle and get more engine power than your kart:
+at 200 % twice the pull (thrust and grip limit, like *Motorkraft*, on top of it and of
+power-ups). That makes them quicker out of corners but not faster on the straights, where
+the gearing sets the top speed.
+Races on the first track (mean speed of the six computer karts, units/s, 250 cc values):
+−100 %: 10.2, −50 %: 38.3, 0 %: 43.6, 50 %: 46.7, 100 %: 49.0 – 49.8, 150 %: 51.1, 200 %: 51.1.
+The default is 100 %, like the other defaults the 250 cc kart. *Tempo* is not part of the
+presets: copying a preset or loading an own slot leaves it as it is, *Zurücksetzen* sets it
+back to 100 %.
 
 **Warnings.** Some combinations do not break anything but leave the computer karts stuck for
-long stretches of a race. While the values make such a combination, a yellow line on all three
-pages says which one:
+long stretches of a race. While the values make such a combination, a yellow line on the
+tuning page and on the pages that hold one of its values says which one (all three are
+about kart values, so they show on *Kart*, not on *Welt* or *Gegner*):
 
 | Warning | When | Computer karts stuck (six karts, 45 s, added up) |
 | --- | --- | --- |
@@ -233,7 +304,7 @@ pages says which one:
 With the defaults they stand still for 4 – 6 s in such a race. The warning is only a hint;
 the values can be raced anyway. *Dragster* is the only built-in preset that gets one.
 
-The row *Vorlage* copies a ready-made set of values into all eight rows: ← / → (or its
+The row *Vorlage* copies a ready-made set of values into the rows of *Kart* and *Welt*: ← / → (or its
 arrows) steps through the presets below, and from there each row can be changed further. The
 row shows the name of the preset the values match (the one copied last, if two match), or
 *Ungespeichert* once they match none; then ← / → continue from the preset copied last.
@@ -290,6 +361,7 @@ own sets of values:
 | Lenkung | Largest steering angle | 25 – 200 % | 100 % |
 | Anpressdruck | Downforce | 0 – 800 % | 100 % |
 | Schwerkraft (page *Welt*) | Gravity of the whole race: karts, computer karts and loose objects. 100 % = the game's 19.62 units/s² | 25 – 300 % | 100 % |
+| Tempo (page *Gegner*) | Throttle of the computer karts: −100 % walking pace, 0 % as in 150 cc, 100 % full throttle; above that, more engine power than yours | −100 – 200 % | 100 % |
 
 - The defaults are the 250 cc kart, to the nearest step (its gearing is 1.545). The percent
   rows are relative to the chosen character, so the characters keep their differences
@@ -361,7 +433,7 @@ ends at 65 units/s, with the power can at 74. So the default tuning kart drives 
 
 Instead of the release zip, the patch can be applied to your own original exe with Python 3
 (no other dependencies). The commands above that change `settings.dat` (`--physics60`,
-`--player-name`, `--unlock`) need it as well.
+`--player-name`, `--unlock`, `--unlock-tuning`) use the same script.
 
 ```powershell
 py tools\patch_200cc.py "<game folder>\MHK2-XXL.exe" out
@@ -371,12 +443,49 @@ This writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`; add `--lang en` f
 menu texts (the exe is the same). The script only accepts the original exe (SHA-256 starting
 with `272bfad50336ec4c`; an already patched one is refused), checks every byte it replaces, and
 never writes next to its input. `--listing FILE` dumps the added code and all patch sites.
+If it refuses your exe, see [Other versions of the exe](#other-versions-of-the-exe).
 
 `py tools\make_release.py "<game folder>\MHK2-XXL.exe"` builds both release zips into `dist\`.
 
+## Other versions of the exe
+
+The patch is made for one exe: **German V1.0**, file version 1.0, build Mar 23 2004,
+2,244,608 bytes, SHA-256 starting with `272bfad50336ec4c`. It comes from the *10 Jahre
+Moorhuhn* CD. To check yours, in PowerShell in the game folder:
+
+```powershell
+Get-FileHash MHK2-XXL.exe
+```
+
+```powershell
+(Get-Item MHK2-XXL.exe).Length
+```
+
+The patcher prints both values too when it refuses an exe.
+
+Other releases may well have a different exe: the first German release (if it differs from the
+CD), the V1.1 update, and certainly the English version. Only this one exe was available, so
+none of them has been looked at. If yours differs:
+
+- **Try the patched exe from the zip.** The exe holds no game data; tracks, karts and texts come
+  from `data\mhk2-00.dat` (and `mhk2-01.dat` with V1.1). On a German install the release exe
+  may run fine; it has not been tried on anything but the CD version. Keep your own exe and put
+  it back if something is wrong. If the V1.1 update brought its own exe, its changes in the exe
+  are missing then; its changes in `mhk2-01.dat` stay.
+- **English version:** untested. Its data and text files probably differ from the German ones,
+  so the release exe may not find its texts or may not run at all.
+- **Moving the patch to another exe** is possible but not a switch. Every patch site checks the
+  bytes it replaces, so the patcher never writes into an exe it does not know. In an exe built
+  from slightly different source code, the same code sits at other addresses: each of the 80
+  sites, and the game addresses the new code uses, would have to be found again and the patcher
+  given a second set of addresses. This has not been done for any other build.
+- **Tell me about it:** open an issue with the file size, the SHA-256, the file version
+  (Properties → Details) and where the game comes from (CD or box, edition, update, language).
+  Please do not upload the exe itself.
+
 ## How it works
 
-- 78 small patches in the original code plus about 5400 bytes of new code (and 500 of data) in an added section (`.mod200`).
+- 80 small patches in the original code plus about 6400 bytes of new code (and 500 of data) in an added section (`.mod200`).
 - The save file has fixed tables for 3 classes × 64 tracks and 3 × 20 championships, of which only
   8 tracks and 4 championships are ever used. The new records are stored in unused slots
   (tracks 33–64 and championships 11–20): those of the 150 cc rows for 200 cc, of the 100 cc
@@ -384,23 +493,32 @@ never writes next to its input. `--listing FILE` dumps the added code and all pa
   and a `settings.dat` from an earlier version of the patch keeps its records.
 - Class names are texts 332 + class, and the unlock messages are numbered by class too. Some
   of the numbers the new classes need are taken by other stock texts (336, the hint in the
-  class menu, and 584), so the patch moves the hint to 342 and gives 250 cc its own message
-  number.
+  class menu, and 584), so the patch moves the hint to 342 and gives 250 cc and the tuning
+  class their own message numbers (588, 589). The tuning row of the class menu is a label with
+  an empty text until the class is unlocked, so the rows keep their numbers.
+- Computer karts: each kart's throttle is the game's factor for the class, its rubber band
+  and its random strength multiplied together (200 cc, 250 cc and Tuning use the 150 cc
+  values). A hook right behind that multiplication turns the throttle *t* into
+  *t* + (1 − *t*) · *g*, with *g* = 0.5 in 200 cc, 1 in 250 cc and *Tempo* / 100 in the tuning
+  class (below 0 it is *t* · (1 + *g*)). Above 100 % the pull hook (see *Pull*) multiplies
+  their pull by *Tempo* / 100 for every vehicle that is not a human player's: the race object
+  keeps the players' cars, and each car points to its vehicle. Steering, braking and the racing line are the game's own in every class.
 - Pull: the game multiplies the engine's torque and the traction limit by a factor that only
   its power-ups set. The patch multiplies both by the class's pull as well.
 - Tuning class: the game applies a class at the end of loading a kart's values and then builds
   the kart's physics from them. The tuning class scales seven of those values at that point.
   The gravity: the game builds a new physics world at every race start with the gravity
   (0, −19.62, 0); in the tuning class a hook right behind that scales it.
-  The pages are new menu pages (numbers 1Dh, 1Fh and 20h; the game's own end at 1Ch) with their
-  own builder and input handling. The eight values live in a highscore entry the game never
+  The pages are new menu pages (numbers 1Dh, 1Fh, 20h and 21h; the game's own end at 1Ch) with their
+  own builder and input handling. The nine values live in a highscore entry the game never
   reaches (50 cc, track 63: `settings.dat` offset 0x2E48, the marker `TUNE` at 0x2E78). The
   presets are a table behind the patch's code, their names texts 250–265 in `text-20.csv`.
   The own presets are page 1Eh, their eight slots two more unused highscore entries (50 cc,
   tracks 61 and 62: `settings.dat` offset 0x2C60, 32 bytes each: eight values – the gravity,
   never 0, marks a filled slot – and the name), with the marker `OWNP` at 0x2D60. Behind them
-  are the marker `WELT` (0x2D6C, "this save has eight values") and the number of the preset
-  copied last (0x2D70; up to 1.6 it was where the gravity is now). Renaming uses the
+  are the marker `WELT` (0x2D6C, "this save has eight values"), the number of the preset
+  copied last (0x2D70; up to 1.6 it was where the gravity is now) and the marker `GEGN`
+  (0x2D74, "this save has *Tempo*", added in 1.9). Renaming uses the
   game's name page: a hook in front of the result pages' input handler takes *Weiter* and
   Esc while a slot is being renamed, the game does the typing.
 - Downforce rules of the tuning class: the force function computes the downforce as
@@ -431,8 +549,8 @@ never writes next to its input. `--listing FILE` dumps the added code and all pa
   `phantom-5-NN.mhk2` (250 cc) and `phantom-6-NN.mhk2` (tuning), NN = track 01–08. The first
   finished time trial on a track creates the file; until then the highscore list shows a
   placeholder phantom (10:39:99).
-- **mhk2_manager V1.0** only knows three engine classes; it has not been tried with phantoms
-  or championship results of the new classes.
+- **mhk2_manager** knows 200 ccm, 250 ccm and Tuning from V1.1 on (V1.0 stops at the first
+  run in a new class). V1.1 was checked on its phantom code, not yet in a session with the game.
 - The player name only changes when the game asks for one (a time trial result in the top
   five) or with `--player-name`. Names longer than 12 characters are cut in phantom files.
 - The options menu rows sit a little higher than in the stock game to make room for the switch.
@@ -465,6 +583,11 @@ So the exe in the releases was edited by an AI, not by hand. It was tested, but 
 odd.
 
 ## Related projects
+
+- [mhk2_manager](https://github.com/Markimk13/mhk2_manager) – by Marki13, the author of this
+  patch: a Java program that keeps your highscores of time trials, championships and duels and
+  lets you pick the phantoms you race against, including imported ones from friends. From V1.1
+  on it knows 200 ccm, 250 ccm and Tuning (see [Good to know](#good-to-know)).
 
 Other Moorhuhn Kart projects by **SKevo**. This patch uses no code or data from them; they are
 worth a look if you like this one:

@@ -3,6 +3,24 @@
 Saves (`settings.dat`) keep their format through all versions; records and phantoms of earlier
 versions stay.
 
+## 1.9
+
+- The tuning class is unlocked by winning Meisterschaft 2 in 250 cc; until then it is not shown
+  in the class menu. (Up to 1.8 it was always open; on such a save it is hidden again until that
+  win, or use `--unlock-tuning`.)
+- Faster computer karts: in 200 cc they lose half of the game's handicap, in 250 cc all of it
+  (full throttle all the time, like you).
+- Tuning class: a third page *Gegner* with *Tempo* (−100 to 200 %): how fast the computer karts
+  drive, from walking pace through 150 cc (0 %) to full throttle (100 %); above that they get
+  more engine power than you. Not part of the presets.
+- Tuning page: each group's values (*Kart*, *Welt*, *Gegner*) now sit under its button.
+- The detail pages explain the selected row; warnings only show on the pages that hold one of
+  their values.
+- `--unlock` also opens Meisterschaft 2 and tracks 5–8 in 50 cc to 250 cc; new
+  `--unlock-tuning` opens the tuning class as well.
+- The release zips contain `tools\patch_200cc.py`, so the commands work straight from the
+  game folder.
+
 ## 1.8 – first public release
 
 - The tuning page lists all values under the *Vorlage* row, grouped *Kart* and *Welt*; the page
