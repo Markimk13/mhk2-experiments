@@ -41,6 +41,10 @@ in English. The English one translates only the patch's own texts; the game's ow
 German (*Weiter* = next, *Zurück* = back). The screenshots below show the German texts.
 
 Both files are needed – without the text file the new menu entries read `**TEXT*NOT*FOUND***`.
+The main menu shows the patch version under its buttons. A release has two digits (1.8, 1.9);
+builds in between have a third one that counts the changes since the last release (1.8.8 is
+the eighth change after 1.8).
+
 When updating from an earlier version of this patch, replace both again. `settings.dat` keeps its
 size, so existing saves keep working. A save from version 1.6 or older gets the gravity (100 %)
 added the first time the tuning class is opened, one from 1.8 or older *Gegner* (100 %); its
@@ -157,9 +161,11 @@ With the patch the game does it itself:
   file creates one (that is every 200 cc and 250 cc track at first). Slower runs change nothing.
 - **Version.** New phantom files start with `V1.1` when the V1.1 data (`mhk2-01.dat`) is
   loaded and with `V1.0` otherwise. The stock game always writes `V1.0`.
-- **Name.** The name typed at *Neue Highscore* is kept and written into every new phantom file,
-  in bytes 8–19, where `mhk2_manager` keeps its player name. The run it was typed for gets it
-  too. The highscore lists show the name instead of "PHANTOM KART".
+- **Name.** The name typed at *Neue Highscore* (time trial or championship) is kept in
+  `settings.dat` and written into every new phantom file, in bytes 8–19, where `mhk2_manager`
+  keeps its player name. The run it was typed for gets it too. The highscore lists show the name
+  instead of "PHANTOM KART". The next time the name page comes up, the field already holds it
+  (the cursor behind it); confirming an empty field takes the kept name as well.
 
 ![result list with the phantom's name](screenshots/07-phantom-name.png)
 

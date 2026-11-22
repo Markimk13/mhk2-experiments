@@ -56,15 +56,16 @@ def main():
     dist = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "dist")
     os.makedirs(dist, exist_ok=True)
-    patched, _, patches = P.patch_exe(exe, (P.FACTOR_200, P.FACTOR_250), (P.PULL_200, P.PULL_250))
+    version = P.patch_version(release=True)          # a release has two digits: the next one after PATCH_RELEASE
+    patched, _, patches = P.patch_exe(exe, (P.FACTOR_200, P.FACTOR_250), (P.PULL_200, P.PULL_250), version)
     for lang in sorted(P.TEXTS):
-        out = os.path.join(dist, "mhk2-patch-%s-%s.zip" % (P.PATCH_VERSION, lang))
+        out = os.path.join(dist, "mhk2-patch-%s-%s.zip" % (version, lang))
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("MHK2-XXL.exe", patched)
-            z.writestr("data/MK2/text-20.csv", P.text_overrides(lang).encode("cp1252"))
+            z.writestr("data/MK2/text-20.csv", P.text_overrides(lang, version).encode("cp1252"))
             z.write(P.__file__, "tools/patch_200cc.py")       # for --unlock and the other commands
             z.writestr("LIESMICH.txt" if lang == "de" else "README.txt",
-                       (NOTES[lang] % P.PATCH_VERSION).encode("cp1252"))
+                       (NOTES[lang] % version).encode("cp1252"))
         print("wrote %s (%d bytes, %d patch sites)" % (out, os.path.getsize(out), len(patches)))
 
 

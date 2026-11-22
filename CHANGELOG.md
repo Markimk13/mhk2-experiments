@@ -22,6 +22,9 @@ versions stay.
   their values.
 - `--unlock` also opens Meisterschaft 2 and tracks 5–8 in 50 cc to 250 cc; new
   `--unlock-tuning` opens the tuning class as well.
+- The name page shows the name typed last (also after a championship); an empty name takes it.
+- The main menu shows the patch version. Releases have two digits; builds in between a third one
+  that counts the changes since the last release.
 - The release zips contain `tools\patch_200cc.py`, so the commands work straight from the
   game folder.
 

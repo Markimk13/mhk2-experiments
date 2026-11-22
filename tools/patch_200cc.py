@@ -57,7 +57,34 @@ import os
 import struct
 import sys
 
-PATCH_VERSION = "1.9"           # the version in README / CHANGELOG and in the release zips' names
+# Version: the last release (PATCH_RELEASE, tagged v<release> in the repositories) and, behind
+# it, the number of commits since then (1.8.5 = the fifth commit after release 1.8); a release
+# itself has two digits and raises the second one (make_release.py builds with release=True).
+# After a release: set PATCH_RELEASE to it and tag that commit v<release>.
+PATCH_RELEASE = "1.8"
+
+
+def patch_version(release=False):
+    """1.8.N while working (N = commits since tag v1.8, plus the one this build goes into), the
+    next release's number (1.9) with release=True. Only the private working repository (the one
+    with the sandbox in .claude) counts commits; a copy of this script anywhere else, such as the
+    public repository, builds the release number."""
+    major, minor = PATCH_RELEASE.split(".")
+    here = os.path.dirname(os.path.abspath(__file__))
+    if release or not os.path.isdir(os.path.join(here, "..", ".claude", "sandbox")):
+        return "%s.%d" % (major, int(minor) + 1)
+    import subprocess
+    try:
+        out = subprocess.run(["git", "rev-list", "--count", "v%s..HEAD" % PATCH_RELEASE],
+                             cwd=here, capture_output=True, text=True)
+        if out.returncode == 0:
+            return "%s.%d" % (PATCH_RELEASE, int(out.stdout.strip()) + 1)
+    except OSError:
+        pass
+    return PATCH_RELEASE + ".x"
+
+
+PATCH_VERSION = patch_version(release=True)   # the next release: README / CHANGELOG and the release zips' names
 ORIGINAL_SHA256 = "272bfad50336ec4c"  # first 16 hex digits are enough to pin the build
 ORIGINAL_SIZE = 0x224000
 IMAGE_BASE = 0x400000
@@ -66,7 +93,7 @@ SECTION_RVA = 0x4C0000          # == SizeOfImage of the original
 SECTION_RAW = ORIGINAL_SIZE     # appended at the end of the file
 SECTION_SIZE = 0x2000
 SIGNATURE_PREFIX = b"MHK2 200cc mod"
-SIGNATURE = SIGNATURE_PREFIX + b" 1.9\0"
+TXT_VERSION = 305           # the main menu's version line
 # The two new classes pull harder than the stock ones (PULL: thrust and traction limit, the way
 # the game's power-ups do it: siren 2.5, power can 5). The class factors (gearing) are chosen
 # so that the top speed is the one a 150 cc kart has with the siren and with the power can.
@@ -269,6 +296,7 @@ OWN_Y_BACK = 526
 # --- addresses inside the original executable -------------------------------
 GP_GET = 0x00403790        # GameParameters* GameParameters::Instance()   (clobbers eax, ecx)
 GP_POINTER = 0x005E84EC    # where Instance() keeps the object once it exists
+MAIN_PROGRAM = 0x005E851C  # the main program; +4 = the current game state (the main menu while in the menus)
 RACE_POINTER = 0x005E8520  # the race object (getter 0x4017F0); +10h: the human players' cars,
                            # [0] player 1, [4] player 2 (taking part while its byte +308h is set);
                            # a car's vehicle is [car+44h]
@@ -359,6 +387,7 @@ TXT_GROUP_TEXTS = (347, 349, 355)      # the tuning page's values of "Kart", "We
 TXT_INFO = (293, 294, 295, 296, 297, 298, 299, 289, TXT_OPP_INFO)   # explanation of rows 1..9
 TXT_TUNING_HIDDEN = 348    # empty: the class menu's tuning row before the class is unlocked
 TXT_TUNING_UNLOCKED = 589  # "tuning class unlocked" (584 + 4 would be 588, taken by 250 cc)
+MAIN_Y_VERSION = 540       # the version line under the main menu's buttons (the last one, "Beenden", is at 470)
 TXT_KART_BUTTON, TXT_WORLD_BUTTON = 234, 235    # the tuning page's buttons to the two pages
 TXT_KART_TITLE, TXT_WORLD_TITLE = 236, 237
 TXT_TUNE_RESET = 0xF8      # 248: "Zurücksetzen"
@@ -491,8 +520,8 @@ assert all(len(TEXTS[lang]["presets"]) == len(TUNE_PRESETS) and len(TEXTS[lang][
            and len(TEXTS[lang]["rows"]) == PRESET_VALUES for lang in TEXTS)
 
 
-def text_overrides(lang="de"):
-    """The contents of text-20.csv in one language."""
+def text_overrides(lang="de", version=None):
+    """The contents of text-20.csv in one language; version = the patch version on the main menu."""
     t = TEXTS[lang]
     title = "<font 30px_redoutline>%s</font>"
     row = dict(zip(range(TXT_TUNE_ROW0, TXT_TUNE_ROW0 + 7), t["rows"][:7]))
@@ -540,6 +569,7 @@ def text_overrides(lang="de"):
         (587, t["unlock"] % (t["first"], "250")),
         (588, t["unlock"] % (t["second"], "250")),
         (TXT_TUNING_UNLOCKED, t["tuning_unlocked"]),
+        (TXT_VERSION, "<scale 0.5><color 200 200 200 255>Patch %s</color></scale>" % (version or PATCH_VERSION)),
     ]
     # the game lists every text with an id from 400 to 499 as a track ("Available tracks" in log.txt)
     assert not any(400 <= n < 500 for n, _ in lines)
@@ -639,7 +669,7 @@ def _imm(value):
     return ("0" if text[0] in "ABCDEF" else "") + text + "h"
 
 
-def build_payload(base, factors, pulls, known=None):
+def build_payload(base, factors, pulls, known=None, version=None):
     """Assemble the new code. Returns (bytes, listing, labels).
 
     `factors` are the class factors of 200 cc and 250 cc, `pulls` their pull factors.
@@ -1685,6 +1715,10 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("5D", "pop         ebp")
     a.raw("8B 44 24 04", "mov         eax,dword ptr [esp+4]")
     a.raw("8B 00", "mov         eax,dword ptr [eax]")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_near("je", "main_build")
+    a.raw("83 F8 %02X" % PAGE_NAME, "cmp         eax,%s" % _imm(PAGE_NAME))
+    a.jcc_near("je", "name_build")
     a.raw("83 F8 %02X" % PAGE_OWN, "cmp         eax,%s" % _imm(PAGE_OWN))
     a.jcc_near("je", "own_build")
     for page, _, _ in SUB_PAGES:
@@ -1723,6 +1757,62 @@ def build_payload(base, factors, pulls, known=None):
           "mov         dword ptr [esi+00000148h],%s" % _imm(TUNE_ITEM_NEXT))   # "Weiter" is selected
     a.raw("61", "popad")
     a.raw("C2 04 00", "ret         4")
+
+    # The main menu: the game's page, then the patch version under the buttons. ecx = menu.
+    a.label("main_build")
+    a.raw("51", "push        ecx")
+    a.raw("FF 74 24 08", "push        dword ptr [esp+8]")
+    a.call(PAGE_BUILD_LAST)
+    a.raw("59", "pop         ecx")
+    a.raw("60", "pushad")
+    a.raw("8B F1", "mov         esi,ecx")
+    a.call("tune_base")
+    t_mov("eax", MAIN_PROGRAM)                    # only the main menu itself (a race's overlay menu
+    a.raw("85 C0", "test        eax,eax")         # also goes to page 0 when it closes)
+    a.jcc_short("je", "main_build_done")
+    a.raw("3B 70 04", "cmp         esi,dword ptr [eax+4]")
+    a.jcc_short("jne", "main_build_done")
+    a.raw("83 EC 1C", "sub         esp,1Ch")
+    get_text("68 " + _le(TXT_VERSION), "push        %s" % _imm(TXT_VERSION))
+    a.raw("68 " + _le(MAIN_Y_VERSION), "push        %s" % _imm(MAIN_Y_VERSION))
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.raw("8B CC", "mov         ecx,esp")
+    a.call(STR_DTOR)
+    a.raw("83 C4 1C", "add         esp,1Ch")
+    a.label("main_build_done")
+    a.raw("61", "popad")
+    a.raw("C2 04 00", "ret         4")
+
+    # The name page (highscores, and renaming an own preset): the game's page, then the name typed
+    # last goes into the field, the cursor behind it. Renaming puts the slot's name there afterwards.
+    a.label("name_build")
+    a.raw("51", "push        ecx")
+    a.raw("FF 74 24 08", "push        dword ptr [esp+8]")
+    a.call(PAGE_BUILD_LAST)
+    a.raw("59", "pop         ecx")
+    a.raw("60", "pushad")
+    a.raw("8B F1", "mov         esi,ecx")
+    a.call("tune_base")
+    t_mov("ebx", GP_POINTER)
+    a.call("name_prefill")
+    a.raw("61", "popad")
+    a.raw("C2 04 00", "ret         4")
+
+    # The stored name into the name field, cursor at its end (if a name was stored).
+    # esi = menu, ebx = GameParameters. Clobbers eax, ecx, edx.
+    a.label("name_prefill")
+    a.raw("81 BB %s %s" % (_le(NAME_MARK_OFFSET), _le(NAME_MARK)),
+          "cmp         dword ptr [ebx+%08Xh],%s" % (NAME_MARK_OFFSET, _imm(NAME_MARK)))
+    a.jcc_short("jne", "name_prefill_done")
+    a.raw("8D 93 " + _le(NAME_OFFSET), "lea         edx,[ebx+%08Xh]" % NAME_OFFSET)
+    a.raw("8D 8E 7C 01 00 00", "lea         ecx,[esi+0000017Ch]")
+    a.call("str_setc")
+    a.raw("8B 86 90 01 00 00", "mov         eax,dword ptr [esi+00000190h]")
+    a.raw("89 86 74 01 00 00", "mov         dword ptr [esi+00000174h],eax")
+    a.label("name_prefill_done")
+    a.raw("C3", "ret")
 
     # First row and the row behind the last of a page "Kart" (rows 1..7), "Welt" (8) or
     # "Gegner" (9). ecx = page. Returns ecx, edx (0, 0 for any other page). Keeps eax.
@@ -2399,15 +2489,15 @@ def build_payload(base, factors, pulls, known=None):
     a.call("tune_base")
     t_mov("ebx", GP_POINTER)
     a.raw("83 BB %s 01" % _le(OWN_FLAG), "cmp         dword ptr [ebx+%08Xh],1" % OWN_FLAG)
-    a.jcc_short("jne", "rename_game")
+    a.jcc_near("jne", "name_confirm_check")
     t_lea("eax", STR_MENU_BACK)
     a.call("tune_pressed")
     a.jcc_short("je", "rename_done")
     t_lea("eax", STR_MENU_SELECT)
     a.call("tune_pressed")
-    a.jcc_short("jne", "rename_game")
+    a.jcc_near("jne", "rename_game")
     a.raw("83 BE 48 01 00 00 00", "cmp         dword ptr [esi+00000148h],0")   # "Weiter"
-    a.jcc_short("jne", "rename_game")
+    a.jcc_near("jne", "rename_game")
     a.raw("8D 8E 7C 01 00 00", "lea         ecx,[esi+0000017Ch]")
     a.call(STR_CSTR)
     a.raw("8B 8B " + _le(OWN_CUR), "mov         ecx,dword ptr [ebx+%08Xh]" % OWN_CUR)
@@ -2422,6 +2512,32 @@ def build_payload(base, factors, pulls, known=None):
     open_page(PAGE_OWN)                           # ends the renaming
     select_item(4)
     a.jmp("tune_out")
+    # A highscore name: "Weiter" with an empty field takes the stored name; a typed one is stored
+    # (time trial names are stored again in name_confirm, which also stamps the phantom).
+    a.label("name_confirm_check")
+    t_lea("eax", STR_MENU_SELECT)
+    a.call("tune_pressed")
+    a.jcc_near("jne", "rename_game")
+    a.raw("83 BE 48 01 00 00 00", "cmp         dword ptr [esi+00000148h],0")   # "Weiter"
+    a.jcc_near("jne", "rename_game")
+    a.raw("83 BE 90 01 00 00 00", "cmp         dword ptr [esi+00000190h],0")   # the typed name's length
+    a.jcc_short("jne", "name_confirm_store")
+    a.call("name_prefill")
+    a.jmp_short("rename_game")
+    a.label("name_confirm_store")
+    a.raw("8D 8E 7C 01 00 00", "lea         ecx,[esi+0000017Ch]")
+    a.call(STR_CSTR)
+    a.raw("8D BB " + _le(NAME_OFFSET), "lea         edi,[ebx+%08Xh]" % NAME_OFFSET)
+    a.raw("33 C9", "xor         ecx,ecx")
+    for off in (0, 4, 8, 12):
+        a.raw("89 4F %02X" % off if off else "89 0F",
+              "mov         dword ptr [edi+%s],ecx" % _imm(off) if off else "mov         dword ptr [edi],ecx")
+    a.raw("6A %02X" % (PHANTOM_NAME_LEN + 1), "push        %s" % _imm(PHANTOM_NAME_LEN + 1))
+    a.raw("50", "push        eax")
+    a.raw("57", "push        edi")
+    t_call_import(IMP_LSTRCPYN)
+    a.raw("C7 83 %s %s" % (_le(NAME_MARK_OFFSET), _le(NAME_MARK)),
+          "mov         dword ptr [ebx+%08Xh],%s" % (NAME_MARK_OFFSET, _imm(NAME_MARK)))
     a.label("rename_game")
     a.raw("8B CE", "mov         ecx,esi")
     a.raw("5D", "pop         ebp")
@@ -2708,6 +2824,10 @@ def build_payload(base, factors, pulls, known=None):
     pic_base("name_pc")
     a.call(GP_GET)
     a.raw("8B D8", "mov         ebx,eax")
+    a.raw("83 BE 90 01 00 00 00", "cmp         dword ptr [esi+00000190h],0")   # an empty name: the stored one
+    a.jcc_short("jne", "name_confirm_typed")
+    a.call("name_prefill")
+    a.label("name_confirm_typed")
     a.raw("83 7B 1C 00", "cmp         dword ptr [ebx+1Ch],0")        # time trial, not a duel
     a.jcc_near("jne", "name_confirm_done")
     a.raw("83 7C 24 24 00", "cmp         dword ptr [esp+24h],0")
@@ -2894,13 +3014,14 @@ def build_payload(base, factors, pulls, known=None):
     a.label("tune_apply_table")
     a.data(b"".join(struct.pack("<BH", n, off) for n, off in TUNE_APPLY) + b"\0",
            "tuning: value number and the car field it scales")
-    a.data(SIGNATURE, "signature")
+    signature = SIGNATURE_PREFIX + b" " + (version or PATCH_VERSION).encode() + b"\0"
+    a.data(signature, "signature")
     a.label("v11_file")
     a.data(V11_FILE, "a file that differs between the data versions")
 
     code, listing = a.finish()
     if a.labels != known:
-        return build_payload(base, factors, pulls, dict(a.labels))   # second pass: forward references are known now
+        return build_payload(base, factors, pulls, dict(a.labels), version)   # second pass: forward references are known now
     assert len(code) <= SECTION_SIZE
     return code, listing, a.labels
 
@@ -3081,7 +3202,7 @@ class PE:
         self.data += content.ljust(size, b"\0")
 
 
-def patch_exe(src, factors, pulls):
+def patch_exe(src, factors, pulls, version=None):
     data = open(src, "rb").read()
     digest = hashlib.sha256(data).hexdigest()
     if len(data) != ORIGINAL_SIZE or not digest.startswith(ORIGINAL_SHA256):
@@ -3094,7 +3215,7 @@ def patch_exe(src, factors, pulls):
                          % (src, len(data), digest, ORIGINAL_SIZE, ORIGINAL_SHA256))
     pe = PE(data)
     base = IMAGE_BASE + SECTION_RVA
-    code, listing, labels = build_payload(base, factors, pulls)
+    code, listing, labels = build_payload(base, factors, pulls, version=version)
     patches = site_patches(labels)
     relocs = pe.relocated_addresses()
     for va, orig, new, what in patches:
@@ -3199,14 +3320,15 @@ def main():
         ap.error("need the original exe and an output directory")
     factors = (args.factor, args.factor_250)
     pulls = (args.pull, args.pull_250)
-    patched, listing, patches = patch_exe(args.exe, factors, pulls)
+    version = patch_version()
+    patched, listing, patches = patch_exe(args.exe, factors, pulls, version)
     os.makedirs(os.path.join(args.outdir, "data", "MK2"), exist_ok=True)
     exe_out = os.path.join(args.outdir, "MHK2-XXL.exe")
     txt_out = os.path.join(args.outdir, "data", "MK2", "text-20.csv")
     if os.path.abspath(exe_out) == os.path.abspath(args.exe):
         raise SystemExit("refusing to overwrite the original exe - choose another output directory")
     open(exe_out, "wb").write(patched)
-    open(txt_out, "wb").write(text_overrides(args.lang).encode("cp1252"))
+    open(txt_out, "wb").write(text_overrides(args.lang, version).encode("cp1252"))
     if args.listing:
         with open(args.listing, "w", encoding="utf-8") as f:
             for va, text in listing:
@@ -3214,8 +3336,8 @@ def main():
             f.write("\n")
             for va, orig, new, what in patches:
                 f.write("%08X: %-32s -> %-32s ; %s\n" % (va, orig.hex(" "), new.hex(" "), what))
-    print("wrote %s (%d site patches, %d listing lines, class factors %g / %g, pull %g / %g)"
-          % (exe_out, len(patches), len(listing), factors[0], factors[1], pulls[0], pulls[1]))
+    print("wrote %s (version %s, %d site patches, %d listing lines, class factors %g / %g, pull %g / %g)"
+          % (exe_out, version, len(patches), len(listing), factors[0], factors[1], pulls[0], pulls[1]))
     print("wrote %s" % txt_out)
 
 
