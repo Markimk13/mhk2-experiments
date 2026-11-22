@@ -187,35 +187,37 @@ TUNE_WARN_ITEM = {"tuning": 8, "kart": 8, "world": 2, "opp": 2}      # the label
 TUNE_Y_WARN = {"tuning": 370, "kart": 392, "world": 220, "opp": 220}
 # A warning shows on the tuning page and on each detail page that has one of its values.
 TUNE_WARN_PAGE_BITS = {"tuning": 7, "kart": 1, "world": 2, "opp": 4}
-# Built-in presets of the "Vorlage" row: name and the eight values in the order of TUNE_ROWS.
+# Built-in presets of the "Vorlage" row: name and the nine values in the order of TUNE_ROWS.
+# "Tempo" of the class copies: 150 cc's computer karts are what 0 % gives; 50 cc's drive at
+# 0.7 / 0.9 of that, about -25 %; 100 cc's at 0.8 / 0.9, nearer 0 % than -25 %.
 # Left / right on the row copies the previous / next one into the values. The row shows the
 # first preset that equals the values, or "Ungespeichert". The classes' gearing (1.468, 1.545)
 # does not fit two decimals, so their copies read 1.47 and 1.55.
 TUNE_PRESETS = (
-    ("50 cc",         (90, 100, 100, 100, 100, 100, 100, 100)),
-    ("100 cc",        (110, 100, 100, 100, 100, 100, 100, 100)),
-    ("150 cc",        (130, 100, 100, 100, 100, 100, 100, 100)),
-    ("200 cc",        (147, 150, 100, 100, 100, 100, 100, 100)),
-    ("250 cc",        (155, 200, 100, 100, 100, 100, 100, 100)),   # = the defaults
-    ("Rakete",        (250, 500, 200, 100, 200, 100, 100, 100)),
-    ("Formel 1",      (200, 600, 300, 100, 300, 100, 300, 100)),
-    ("Rallye",        (155, 300, 75, 100, 100, 150, 50, 100)),
-    ("Glatteis",      (155, 200, 50, 100, 100, 100, 50, 100)),
-    ("Schwergewicht", (155, 200, 100, 300, 200, 100, 100, 100)),
-    ("Federgewicht",  (155, 100, 100, 50, 100, 100, 100, 100)),
-    ("Dragster",      (400, 1000, 200, 150, 100, 50, 50, 100)),
-    ("Schnecke",      (50, 100, 100, 100, 100, 100, 100, 100)),
-    ("Wahnsinn",      (400, 1000, 400, 50, 400, 200, 800, 100)),
-    ("Mondfahrt",     (155, 200, 100, 100, 100, 100, 100, 25)),
-    ("Jupiter",       (155, 200, 100, 100, 100, 100, 100, 250)),
+    ("50 cc",         (90, 100, 100, 100, 100, 100, 100, 100, -25)),
+    ("100 cc",        (110, 100, 100, 100, 100, 100, 100, 100, 0)),
+    ("150 cc",        (130, 100, 100, 100, 100, 100, 100, 100, 0)),
+    ("200 cc",        (147, 150, 100, 100, 100, 100, 100, 100, 50)),
+    ("250 cc",        (155, 200, 100, 100, 100, 100, 100, 100, 100)),   # = the defaults
+    ("Rakete",        (250, 500, 200, 100, 200, 100, 100, 100, 100)),
+    ("Formel 1",      (200, 600, 300, 100, 300, 100, 300, 100, 100)),
+    ("Rallye",        (155, 300, 75, 100, 100, 150, 50, 100, 100)),
+    ("Glatteis",      (155, 200, 50, 100, 100, 100, 50, 100, 100)),
+    ("Schwergewicht", (155, 200, 100, 300, 200, 100, 100, 100, 100)),
+    ("Federgewicht",  (155, 100, 100, 50, 100, 100, 100, 100, 100)),
+    ("Dragster",      (400, 1000, 200, 150, 100, 50, 50, 100, 100)),
+    ("Schnecke",      (50, 100, 100, 100, 100, 100, 100, 100, 100)),
+    ("Wahnsinn",      (400, 1000, 400, 50, 400, 200, 800, 100, 100)),
+    ("Mondfahrt",     (155, 200, 100, 100, 100, 100, 100, 25, 100)),
+    ("Jupiter",       (155, 200, 100, 100, 100, 100, 100, 250, 100)),
 )
 TUNE_PRESET_DEFAULT = 4         # "250 cc"
 # The first eight values fill the names of rank 4 and 5; "Gegner" (patch 1.9) is the character of
 # rank 1 (+0A0h), the marker that of rank 5 (+0B0h).
 assert TUNE_VALUES + 4 * PRESET_VALUES == TUNE_MARK - 0x10 and TUNE_VALUES + 4 * len(TUNE_ROWS) <= TUNE_MARK
 assert len(TUNE_ROWS) == ROW_OPP and PRESET_VALUES == ROW_GRAVITY
-assert TUNE_PRESETS[TUNE_PRESET_DEFAULT][1] == tuple(row[3] for row in TUNE_ROWS[:PRESET_VALUES])
-assert all(len(vals) == PRESET_VALUES for _, vals in TUNE_PRESETS)
+assert TUNE_PRESETS[TUNE_PRESET_DEFAULT][1] == tuple(row[3] for row in TUNE_ROWS)
+assert all(len(vals) == len(TUNE_ROWS) for _, vals in TUNE_PRESETS)
 assert all(lo <= v <= hi for _, vals in TUNE_PRESETS for v, (lo, hi, _, _) in zip(vals, TUNE_ROWS))
 assert len({vals for _, vals in TUNE_PRESETS}) == len(TUNE_PRESETS)   # the row could not tell two apart
 # Own presets ("Eigene Vorlagen", menu page 1Eh): eight slots in two more highscore entries the
@@ -245,7 +247,12 @@ OLD_PRESETS = 14                # built-in presets up to 1.6: the own slots were
 OPP_MARK = TUNE_LAST + 4
 OPP_MAGIC = 0x4E474547          # "GEGN"
 INFO_SHOWN = OPP_MARK + 4       # the item whose explanation a detail page shows (-1: none yet)
-assert INFO_SHOWN + 4 <= TUNE_VALUES - 0x80    # entry 62 (the tuning values' entry) starts at 2DCCh
+# "Tempo" of the own slots (a slot's 20h bytes are full): eight words, then a marker; a save
+# without the marker gets 100 % in every slot once.
+OWN_OPP = INFO_SHOWN + 4
+OWN_OPP_MARK = OWN_OPP + 2 * OWN_SLOTS
+OWN_OPP_MAGIC = 0x5350504F      # "OPPS"
+assert OWN_OPP_MARK + 4 <= TUNE_VALUES - 0x80  # entry 62 (the tuning values' entry) starts at 2DCCh
 PRESETS_ALL = len(TUNE_PRESETS) + OWN_SLOTS    # numbers of the "Vorlage" row: built-in, then own slots
 PAGE_OWN = 0x1E
 PAGE_NAME = 0x13                # the game's name entry page; renames a slot while OWN_FLAG is set
@@ -356,7 +363,8 @@ TXT_OWN_TITLE = 266        # 266..277 without 270: the page of own presets (the 
                            # text with an id from 400 to 499 as a track name, so 4xx is out)
 TXT_OWN_BUTTON = 267       # the tuning page's button
 TXT_OWN_SLOT = 268         # "Platz %d: %s"
-TXT_OWN_VALUES = 269       # the values of an own slot, 9 numbers (at most 228 characters)
+TXT_OWN_VALUES = 269       # the values of an own slot, 10 numbers (OWN_VALUES_BUF)
+OWN_VALUES_BUF = 0x180     # buffer for that text
 TXT_OWN_EMPTY = 271
 assert TXT_TUNE_PRESET0 + len(TUNE_PRESETS) <= TXT_OWN_TITLE
 assert len(TUNE_ROWS) == 9          # rows 10.. would need text ids of their own
@@ -502,7 +510,7 @@ def text_overrides(lang="de"):
         (TXT_OWN_DEFAULT, t["own_default"] + " %d"),
         (266, title % t["own"]), (267, t["own"]),
         (268, t["slot"] + " %d: %s"),
-        (269, values + "</scale>"),
+        (269, values + "<br>" + TXT_GROUP % (t["opp"] + ":") + " %s %%d %%%%</scale>" % t["opp_row"]),
         (TXT_GROUP_TEXTS[0], "<scale 0.6>%s %%d.%%02d, %s %%d %%%%, %s %%d %%%%,<br>" % r[0:3]
          + "%s %%d %%%%, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%</scale>" % r[3:7]),
         (TXT_GROUP_TEXTS[1], "<scale 0.6>%s %%d %%%%</scale>" % r[7]),
@@ -529,10 +537,10 @@ def text_overrides(lang="de"):
     # the game lists every text with an id from 400 to 499 as a track ("Available tracks" in log.txt)
     assert not any(400 <= n < 500 for n, _ in lines)
     assert len({n for n, _ in lines}) == len(lines)
-    # the longest values lines must fit their buffers (100h)
+    # the longest values lines must fit their buffers
     longest = dict(lines)
     widest = (400, 1000, 400, 400, 400, 200, 800, 300, 100)
-    assert len(longest[269].replace("%d.%02d", "4.00") % widest[1:8]) < 0x100
+    assert len(longest[269].replace("%d.%02d", "4.00") % widest[1:]) < OWN_VALUES_BUF
     assert len(longest[TXT_GROUP_TEXTS[0]].replace("%d.%02d", "4.00") % widest[1:7]) < 0x100
     return ("# Moorhuhn Kart 2 - 200 cc / 250 cc / tuning mod. The game merges this file over text.csv.\r\n"
             + "".join("%d;%s\r\n" % line for line in lines))
@@ -1195,6 +1203,17 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("C7 80 %s %s" % (_le(OPP_MARK), _le(OPP_MAGIC)),
           "mov         dword ptr [eax+%08Xh],%s" % (OPP_MARK, _imm(OPP_MAGIC)))
     a.label("opp_done")
+    # ... and the own slots got it in their own table
+    a.raw("81 B8 %s %s" % (_le(OWN_OPP_MARK), _le(OWN_OPP_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (OWN_OPP_MARK, _imm(OWN_OPP_MAGIC)))
+    a.jcc_short("je", "own_opp_done")
+    dflt = TUNE_ROWS[ROW_OPP - 1][3]
+    for k in range(0, 2 * OWN_SLOTS, 4):
+        a.raw("C7 80 %s %s" % (_le(OWN_OPP + k), _le(dflt | dflt << 16)),
+              "mov         dword ptr [eax+%08Xh],%s" % (OWN_OPP + k, _imm(dflt | dflt << 16)))
+    a.raw("C7 80 %s %s" % (_le(OWN_OPP_MARK), _le(OWN_OPP_MAGIC)),
+          "mov         dword ptr [eax+%08Xh],%s" % (OWN_OPP_MARK, _imm(OWN_OPP_MAGIC)))
+    a.label("own_opp_done")
     a.raw("81 B8 %s %s" % (_le(TUNE_MARK), _le(TUNE_MAGIC)),
           "cmp         dword ptr [eax+%08Xh],%s" % (TUNE_MARK, _imm(TUNE_MAGIC)))
     a.jcc_short("je", "tune_defaults_done")
@@ -1271,11 +1290,27 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("66 83 7F %02X 00" % OWN_FILLED, "cmp         word ptr [edi+%s],0" % _imm(OWN_FILLED))
     a.raw("C3", "ret")
     a.label("tune_preset_ptr_builtin")
-    a.raw("6B F8 %02X" % (2 * PRESET_VALUES), "imul        edi,eax,%s" % _imm(2 * PRESET_VALUES))
+    a.raw("6B F8 %02X" % (2 * len(TUNE_ROWS)), "imul        edi,eax,%s" % _imm(2 * len(TUNE_ROWS)))
     a.raw("8D BC 3D " + _le(tdisp("tune_presets")), "lea         edi,[ebp+edi+%08Xh]" % tdisp("tune_presets"))
     a.raw("C3", "ret")                            # not zero: "not equal"
 
-    # Do the eight words at edi equal the eight values? Returns "equal" if they do.
+    # The address of a preset's "Tempo" word: behind the eight words of a built-in preset, in
+    # the table OWN_OPP for an own slot. edi = the preset's words (from tune_preset_ptr),
+    # ebx = GameParameters. Returns edx.
+    a.label("preset_opp")
+    a.raw("8B D7", "mov         edx,edi")
+    a.raw("2B D3", "sub         edx,ebx")
+    a.raw("81 EA " + _le(OWN_BASE), "sub         edx,%s" % _imm(OWN_BASE))
+    a.raw("81 FA " + _le(OWN_SLOT * OWN_SLOTS), "cmp         edx,%s" % _imm(OWN_SLOT * OWN_SLOTS))
+    a.jcc_short("jae", "preset_opp_builtin")
+    a.raw("C1 EA 04", "shr         edx,4")                    # slot * 20h -> slot * 2
+    a.raw("8D 94 1A " + _le(OWN_OPP), "lea         edx,[edx+ebx+%08Xh]" % OWN_OPP)
+    a.raw("C3", "ret")
+    a.label("preset_opp_builtin")
+    a.raw("8D 57 %02X" % (2 * PRESET_VALUES), "lea         edx,[edi+%s]" % _imm(2 * PRESET_VALUES))
+    a.raw("C3", "ret")
+
+    # Do the preset at edi and the nine values agree? Returns "equal" if they do.
     # ebx = GameParameters. Clobbers ecx, edx.
     a.label("tune_equal")
     a.raw("33 C9", "xor         ecx,ecx")
@@ -1286,8 +1321,25 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "tune_equal_next")
-    a.raw("33 C9", "xor         ecx,ecx")         # "equal"
+    a.call("preset_opp")                          # and "Tempo" (signed)
+    a.raw("0F BF 12", "movsx       edx,word ptr [edx]")
+    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
+    a.raw("3B 93 " + _le(off), "cmp         edx,dword ptr [ebx+%08Xh]" % off)
     a.label("tune_equal_done")
+    a.raw("C3", "ret")
+
+    # The preset at edi into the nine values. ebx = GameParameters. Clobbers eax, ecx, edx.
+    a.label("preset_load")
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.label("preset_load_next")
+    a.raw("0F B7 04 4F", "movzx       eax,word ptr [edi+ecx*2]")
+    a.raw("89 84 8B " + _le(TUNE_VALUES), "mov         dword ptr [ebx+ecx*4+%08Xh],eax" % TUNE_VALUES)
+    a.raw("41", "inc         ecx")
+    a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
+    a.jcc_short("jb", "preset_load_next")
+    a.call("preset_opp")
+    a.raw("0F BF 02", "movsx       eax,word ptr [edx]")
+    a.raw("89 83 " + _le(off), "mov         dword ptr [ebx+%08Xh],eax" % off)
     a.raw("C3", "ret")
 
     # Which preset do the eight values equal? The one copied last if it still does, else the
@@ -1423,6 +1475,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("83 C4 30", "add         esp,30h")
     a.jmp_short("own_text_done")
     a.label("own_text_values")
+    a.raw("0F BF 84 4B " + _le(OWN_OPP), "movsx       eax,word ptr [ebx+ecx*2+%08Xh]" % OWN_OPP)   # its "Tempo"
     a.raw("C1 E1 05", "shl         ecx,5")
     a.raw("8D 94 0B " + _le(OWN_BASE), "lea         edx,[ebx+ecx+%08Xh]" % OWN_BASE)
     a.raw("66 83 7A %02X 00" % OWN_FILLED, "cmp         word ptr [edx+%s],0" % _imm(OWN_FILLED))
@@ -1433,6 +1486,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("83 C4 08", "add         esp,8")
     a.jmp_short("own_text_done")
     a.label("own_text_full")
+    a.raw("8B C8", "mov         ecx,eax")
     a.raw("8B C7", "mov         eax,edi")
     a.call("values_text")
     a.label("own_text_done")
@@ -1440,11 +1494,13 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("5B", "pop         ebx")
     a.raw("C3", "ret")
 
-    # The values text of an own slot (text 269, grouped "Kart" / "Welt"). edx = the eight values
-    # as words, eax = buffer (100h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
+    # The values text of an own slot (text 269, grouped "Kart" / "Welt" / "Gegner"). edx = the
+    # eight values as words, ecx = its "Tempo", eax = buffer (OWN_VALUES_BUF bytes),
+    # ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("values_text")
     a.raw("57", "push        edi")
     a.raw("8B F8", "mov         edi,eax")
+    a.raw("51", "push        ecx")                # the last argument
     a.raw("B9 %s" % _le(PRESET_VALUES - 1), "mov         ecx,%d" % (PRESET_VALUES - 1))
     a.label("values_text_push")                   # the percent values, the last one first
     a.raw("0F B7 04 4A", "movzx       eax,word ptr [edx+ecx*2]")
@@ -1460,7 +1516,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("68 " + _le(TXT_OWN_VALUES), "push        %s" % _imm(TXT_OWN_VALUES))
     a.raw("57", "push        edi")
     a.call("tune_printf")
-    n = 4 * (PRESET_VALUES - 1 + 2 + 2)
+    n = 4 * (1 + PRESET_VALUES - 1 + 2 + 2)
     a.raw("83 C4 %02X" % n, "add         esp,%s" % _imm(n))
     a.raw("5F", "pop         edi")
     a.raw("C3", "ret")
@@ -1731,7 +1787,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("8D 8E 30 01 00 00", "lea         ecx,[esi+00000130h]")
     a.call(ITEMS_CLEAR)
     a.call("tune_defaults")
-    a.raw("81 EC 00 01 00 00", "sub         esp,100h")
+    a.raw("81 EC " + _le(OWN_VALUES_BUF), "sub         esp,%s" % _imm(OWN_VALUES_BUF))
     a.raw("33 C0", "xor         eax,eax")
     a.raw("8B D4", "mov         edx,esp")
     a.call("own_text")
@@ -1749,7 +1805,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("50", "push        eax")
     a.raw("8B CE", "mov         ecx,esi")
     a.call(ADD_LABEL)
-    a.raw("81 C4 00 01 00 00", "add         esp,100h")
+    a.raw("81 C4 " + _le(OWN_VALUES_BUF), "add         esp,%s" % _imm(OWN_VALUES_BUF))
     for k, y in enumerate(OWN_Y_BUTTONS):         # items 2..5
         a.raw("B8 " + _le(TXT_OWN_LOAD + k), "mov         eax,%s" % _imm(TXT_OWN_LOAD + k))
         a.raw("BA " + _le(y), "mov         edx,%s" % _imm(y))
@@ -1877,7 +1933,7 @@ def build_payload(base, factors, pulls, known=None):
     a.label("tune_settext")
     a.raw("57", "push        edi")
     a.raw("8B F8", "mov         edi,eax")
-    a.raw("81 EC 00 01 00 00", "sub         esp,100h")
+    a.raw("81 EC " + _le(OWN_VALUES_BUF), "sub         esp,%s" % _imm(OWN_VALUES_BUF))
     a.raw("8B D4", "mov         edx,esp")
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_OWN, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_OWN))
     a.jcc_short("jne", "tune_settext_tuning")
@@ -1891,7 +1947,7 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("8B C7", "mov         eax,edi")
     a.raw("8B D4", "mov         edx,esp")
     a.call("item_setstr")
-    a.raw("81 C4 00 01 00 00", "add         esp,100h")
+    a.raw("81 C4 " + _le(OWN_VALUES_BUF), "add         esp,%s" % _imm(OWN_VALUES_BUF))
     a.raw("5F", "pop         edi")
     a.raw("C3", "ret")
 
@@ -2005,13 +2061,7 @@ def build_payload(base, factors, pulls, known=None):
     a.call("tune_preset_ptr")
     a.jcc_short("je", "tune_preset_next")                                  # an empty slot: one further
     a.raw("89 83 " + _le(TUNE_LAST), "mov         dword ptr [ebx+%08Xh],eax" % TUNE_LAST)
-    a.raw("33 C9", "xor         ecx,ecx")
-    a.label("tune_preset_copy")
-    a.raw("0F B7 04 4F", "movzx       eax,word ptr [edi+ecx*2]")
-    a.raw("89 84 8B " + _le(TUNE_VALUES), "mov         dword ptr [ebx+ecx*4+%08Xh],eax" % TUNE_VALUES)
-    a.raw("41", "inc         ecx")
-    a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
-    a.jcc_short("jb", "tune_preset_copy")
+    a.call("preset_load")
     a.jmp_short("tune_step_refresh")
 
     # One step up or down for a value, then its row shows the new value.
@@ -2197,13 +2247,7 @@ def build_payload(base, factors, pulls, known=None):
     # "Laden": the slot's values into the tuning values, back to the tuning page
     a.raw("66 83 7F %02X 00" % OWN_FILLED, "cmp         word ptr [edi+%s],0" % _imm(OWN_FILLED))
     a.jcc_near("je", "tune_out")
-    a.raw("33 C9", "xor         ecx,ecx")
-    a.label("own_load_copy")
-    a.raw("0F B7 04 4F", "movzx       eax,word ptr [edi+ecx*2]")
-    a.raw("89 84 8B " + _le(TUNE_VALUES), "mov         dword ptr [ebx+ecx*4+%08Xh],eax" % TUNE_VALUES)
-    a.raw("41", "inc         ecx")
-    a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
-    a.jcc_short("jb", "own_load_copy")
+    a.call("preset_load")
     a.raw("8B 83 " + _le(OWN_CUR), "mov         eax,dword ptr [ebx+%08Xh]" % OWN_CUR)
     a.raw("83 E0 07", "and         eax,7")
     a.raw("83 C0 %02X" % len(TUNE_PRESETS), "add         eax,%s" % _imm(len(TUNE_PRESETS)))
@@ -2223,6 +2267,10 @@ def build_payload(base, factors, pulls, known=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "own_save_copy")            # the last value (never 0) marks the slot as filled
+    a.call("preset_opp")                          # "Tempo" into the slot's word of OWN_OPP
+    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
+    a.raw("8B 83 " + _le(off), "mov         eax,dword ptr [ebx+%08Xh]" % off)
+    a.raw("66 89 02", "mov         word ptr [edx],ax")
     a.jmp("own_refresh")
     a.label("own_not_save")
     a.raw("83 F8 04", "cmp         eax,4")
@@ -2798,8 +2846,8 @@ def build_payload(base, factors, pulls, known=None):
     a.label("tune_rows")
     a.data(b"".join(struct.pack("<4h", *row) for row in TUNE_ROWS), "tuning rows: minimum, maximum, step, default")
     a.label("tune_presets")
-    a.data(b"".join(struct.pack("<%dH" % PRESET_VALUES, *vals) for _, vals in TUNE_PRESETS),
-           "tuning presets: the eight values of " + ", ".join(name for name, _ in TUNE_PRESETS))
+    a.data(b"".join(struct.pack("<%dh" % len(TUNE_ROWS), *vals) for _, vals in TUNE_PRESETS),
+           "tuning presets: the nine values of " + ", ".join(name for name, _ in TUNE_PRESETS))
     a.label("tune_warnings")
     blob = b""
     for n, (_, conds) in enumerate(TUNE_WARNINGS):

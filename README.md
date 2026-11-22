@@ -284,9 +284,8 @@ power-ups). That makes them quicker out of corners but not faster on the straigh
 the gearing sets the top speed.
 Races on the first track (mean speed of the six computer karts, units/s, 250 cc values):
 −100 %: 10.2, −50 %: 38.3, 0 %: 43.6, 50 %: 46.7, 100 %: 49.0 – 49.8, 150 %: 51.1, 200 %: 51.1.
-The default is 100 %, like the other defaults the 250 cc kart. *Tempo* is not part of the
-presets: copying a preset or loading an own slot leaves it as it is, *Zurücksetzen* sets it
-back to 100 %.
+The default is 100 %, like the other defaults the 250 cc kart. *Tempo* is part of the presets
+like every other value: the class copies have the pace of their class, an own slot keeps it.
 
 **Warnings.** Some combinations do not break anything but leave the computer karts stuck for
 long stretches of a race. While the values make such a combination, a yellow line on the
@@ -304,32 +303,34 @@ about kart values, so they show on *Kart*, not on *Welt* or *Gegner*):
 With the defaults they stand still for 4 – 6 s in such a race. The warning is only a hint;
 the values can be raced anyway. *Dragster* is the only built-in preset that gets one.
 
-The row *Vorlage* copies a ready-made set of values into the rows of *Kart* and *Welt*: ← / → (or its
+The row *Vorlage* copies a ready-made set of values into all rows: ← / → (or its
 arrows) steps through the presets below, and from there each row can be changed further. The
 row shows the name of the preset the values match (the one copied last, if two match), or
 *Ungespeichert* once they match none; then ← / → continue from the preset copied last.
 
-| Preset | Übers. | Motor | Haft. | Gew. | Brems. | Lenk. | Anpr. | Schwer. | Idea |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 50 cc | 0.90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | the class |
-| 100 cc | 1.10 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | the class |
-| 150 cc | 1.30 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | the class |
-| 200 cc | 1.47 | 150 | 100 | 100 | 100 | 100 | 100 | 100 | the class (its gearing is 1.468) |
-| 250 cc | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 100 | the class (1.545); the defaults |
-| Rakete | 2.50 | 500 | 200 | 100 | 200 | 100 | 100 | 100 | much faster, grip and brakes to match |
-| Formel 1 | 2.00 | 600 | 300 | 100 | 300 | 100 | 300 | 100 | grip, downforce and brakes for the corners |
-| Rallye | 1.55 | 300 | 75 | 100 | 100 | 150 | 50 | 100 | strong engine on little grip, quick steering |
-| Glatteis | 1.55 | 200 | 50 | 100 | 100 | 100 | 50 | 100 | everything slides |
-| Schwergewicht | 1.55 | 200 | 100 | 300 | 200 | 100 | 100 | 100 | three times the weight |
-| Federgewicht | 1.55 | 100 | 100 | 50 | 100 | 100 | 100 | 100 | half the weight, half the engine |
-| Dragster | 4.00 | 1000 | 200 | 150 | 100 | 50 | 50 | 100 | straight-line monster with half the steering |
-| Schnecke | 0.50 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | top speed 20, for learning a track |
-| Wahnsinn | 4.00 | 1000 | 400 | 50 | 400 | 200 | 800 | 100 | everything at the limit that still works |
-| Mondfahrt | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 25 | 250 cc on a quarter of the gravity: long jumps |
-| Jupiter | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 250 | 250 cc on Jupiter (2.5 times the gravity) |
+| Preset | Übers. | Motor | Haft. | Gew. | Brems. | Lenk. | Anpr. | Schwer. | Tempo | Idea |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50 cc | 0.90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | −25 | the class |
+| 100 cc | 1.10 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | the class |
+| 150 cc | 1.30 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | the class |
+| 200 cc | 1.47 | 150 | 100 | 100 | 100 | 100 | 100 | 100 | 50 | the class (its gearing is 1.468) |
+| 250 cc | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | the class (1.545); the defaults |
+| Rakete | 2.50 | 500 | 200 | 100 | 200 | 100 | 100 | 100 | 100 | much faster, grip and brakes to match |
+| Formel 1 | 2.00 | 600 | 300 | 100 | 300 | 100 | 300 | 100 | 100 | grip, downforce and brakes for the corners |
+| Rallye | 1.55 | 300 | 75 | 100 | 100 | 150 | 50 | 100 | 100 | strong engine on little grip, quick steering |
+| Glatteis | 1.55 | 200 | 50 | 100 | 100 | 100 | 50 | 100 | 100 | everything slides |
+| Schwergewicht | 1.55 | 200 | 100 | 300 | 200 | 100 | 100 | 100 | 100 | three times the weight |
+| Federgewicht | 1.55 | 100 | 100 | 50 | 100 | 100 | 100 | 100 | 100 | half the weight, half the engine |
+| Dragster | 4.00 | 1000 | 200 | 150 | 100 | 50 | 50 | 100 | 100 | straight-line monster with half the steering |
+| Schnecke | 0.50 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | top speed 20, for learning a track |
+| Wahnsinn | 4.00 | 1000 | 400 | 50 | 400 | 200 | 800 | 100 | 100 | everything at the limit that still works |
+| Mondfahrt | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 25 | 100 | 250 cc on a quarter of the gravity: long jumps |
+| Jupiter | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 250 | 100 | 250 cc on Jupiter (2.5 times the gravity) |
 
 The class copies drive like the classes, up to the third decimal of the gearing (the copies of
-200 cc and 250 cc are 0.07 and 0.18 units/s faster at the top). The other presets were tried
+200 cc and 250 cc are 0.07 and 0.18 units/s faster at the top). Their computer karts follow
+the 150 cc rules with *Tempo*, so the copies of 50 cc (−25 %) and 100 cc (0 %) only come
+close to the real classes' opponents. The other presets were tried
 by the computer karts only.
 
 **Own presets.** *Eigene Vorlagen* on the tuning page opens a page with eight slots for your
@@ -338,8 +339,8 @@ own sets of values:
 ![own presets](screenshots/09-own-presets.png)
 
 - ← / → on the top row picks the slot (*Platz 1* … *Platz 8*); below it are the slot's values,
-  grouped *Kart* and *Welt* like on the tuning page, or *(leer)*. All slots start empty.
-- *Speichern* stores the eight values currently set (kart and gravity) in the slot (it overwrites
+  grouped *Kart*, *Welt* and *Gegner*, or *(leer)*. All slots start empty.
+- *Speichern* stores all values currently set (kart, gravity and *Tempo*) in the slot (it overwrites
   whatever was there). So: copy a preset with *Vorlage*, change it, open *Eigene Vorlagen*,
   pick a slot, *Speichern*.
 - *Laden* copies the slot's values onto the tuning page and goes back there.
@@ -518,7 +519,8 @@ none of them has been looked at. If yours differs:
   never 0, marks a filled slot – and the name), with the marker `OWNP` at 0x2D60. Behind them
   are the marker `WELT` (0x2D6C, "this save has eight values"), the number of the preset
   copied last (0x2D70; up to 1.6 it was where the gravity is now) and the marker `GEGN`
-  (0x2D74, "this save has *Tempo*", added in 1.9). Renaming uses the
+  (0x2D74, "this save has *Tempo*", added in 1.9). The own slots' *Tempo* does not fit into their
+  32 bytes; it is a table of eight words at 0x2D7C with the marker `OPPS` at 0x2D8C. Renaming uses the
   game's name page: a hook in front of the result pages' input handler takes *Weiter* and
   Esc while a slot is being renamed, the game does the typing.
 - Downforce rules of the tuning class: the force function computes the downforce as

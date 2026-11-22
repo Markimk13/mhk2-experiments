@@ -12,7 +12,8 @@ versions stay.
   (full throttle all the time, like you).
 - Tuning class: a third page *Gegner* with *Tempo* (−100 to 200 %): how fast the computer karts
   drive, from walking pace through 150 cc (0 %) to full throttle (100 %); above that they get
-  more engine power than you. Not part of the presets.
+  more engine power than you. Part of the presets: the class copies have their class's pace,
+  own slots keep it.
 - Tuning page: each group's values (*Kart*, *Welt*, *Gegner*) now sit under its button.
 - The detail pages explain the selected row; warnings only show on the pages that hold one of
   their values.
