@@ -53,6 +53,7 @@ original exe with the Python script in this repository: see
 - [How it works](#how-it-works)
 - [Good to know](#good-to-know)
 - [How this was made](#how-this-was-made)
+- [Related projects](#related-projects)
 - [Rights](#rights)
 
 ## 60 FPS physics switch
@@ -462,6 +463,18 @@ everything comes from the exe:
 
 So the exe in the releases was edited by an AI, not by hand. It was tested, but report anything
 odd.
+
+## Related projects
+
+Other Moorhuhn Kart projects by **SKevo**. This patch uses no code or data from them; they are
+worth a look if you like this one:
+
+- [idlemod](https://github.com/SKevo18/idlemod) – a command-line tool that unpacks, patches and
+  repacks the data files of Moorhuhn Kart 1–4 and related games, with ready-made mods. Its
+  `cheat_engine` folder has Cheat Engine tables (and a standalone trainer for Moorhuhn Kart 2)
+  that change the running game: endless items, no falling off the track, respawn tweaks and more.
+- [Moorhuhn Kart: Open Source](https://github.com/mhk-os/mhk-os) – a remake of the game with
+  mod support; Moorhuhn Kart 2, 3, Extra and Thunder are converted into it as mods.
 
 ## Rights
 
