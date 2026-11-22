@@ -1,0 +1,118 @@
+name: Bug report
+description: Something in the patched game does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please write in English if you can – German is welcome too.
+        One problem per issue, please. For questions and chat, use the Discord server.
+
+  - type: input
+    id: version
+    attributes:
+      label: Patch version
+      description: Shown on the main menu under the buttons, e.g. 1.9 or 1.9.2.
+      placeholder: "1.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data
+    attributes:
+      label: Game data
+      description: V1.1 means the file `data\mhk2-01.dat` is in your game folder.
+      options:
+        - V1.0
+        - V1.1
+        - I don't know
+    validations:
+      required: true
+
+  - type: dropdown
+    id: class
+    attributes:
+      label: Class
+      options:
+        - 50 cc
+        - 100 cc
+        - 150 cc
+        - 200 cc
+        - 250 cc
+        - Tuning
+        - Not in a race (menus)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      options:
+        - Time trial
+        - Single race
+        - Championship
+        - Duel / two players
+        - Not in a race (menus)
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Track and character
+      placeholder: "Egypt, Moorhuhn"
+
+  - type: dropdown
+    id: physics60
+    attributes:
+      label: 60-FPS-Fahrphysik switch (Einstellungen)
+      options:
+        - "On"
+        - "Off"
+        - I don't know
+
+  - type: input
+    id: fps
+    attributes:
+      label: Frame rate, if you know it
+      placeholder: "60 / 200 / unlimited"
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Start a time trial in 250 cc on ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Screenshots, videos or files
+      description: |
+        Drag files in here. GitHub does not take `.mhk2` or `.dat` files directly: put them into a **zip** first.
+        **Please note:** phantom files (`.mhk2`) contain a random id of your PC, and `settings.dat` contains your records and player names. Everything you attach here is public.
+        **Do not attach files of the game itself** (`MHK2-XXL.exe`, `mhk2-00.dat`, …) – they belong to the game's rights holders.
+
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Before you send
+      options:
+        - label: I did not attach files of the game itself.
+          required: true

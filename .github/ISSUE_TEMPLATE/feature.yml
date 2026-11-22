@@ -1,0 +1,46 @@
+name: Feature idea
+description: Something new, or a change to something that already works.
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Please write in English if you can – German is welcome too.
+        One idea per issue, please. Please search the open issues first – maybe someone had the same idea; then add a 👍 or a comment there.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Classes (200 cc, 250 cc, …)
+        - Tuning class
+        - Computer karts
+        - Phantom karts and records
+        - Tracks and championships
+        - Driving physics / FPS
+        - Menus and texts
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: Describe it as a player would see it in the game.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why? What would it be good for?
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Examples, screenshots, other games that do it well, …
