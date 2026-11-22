@@ -110,6 +110,12 @@ ROW_GRAVITY, ROW_OPP = 8, 9     # rows of the pages "Welt" and "Gegner"
 # so above 100 % the computer karts get full throttle and Tempo / 100 times the pull instead
 # (thrust and traction limit, on top of "Motorkraft" and power-ups); the player's kart does not.
 AI_CATCHUP = (0.5, 1.0)
+# A computer kart that holds a power-up fires it when rand(800) is 0, checked at every update of
+# its controller, i.e. every frame: on average after 13 s at 60 FPS, but after 4 s at 200 FPS.
+# The patch scales the 800 by the frame time, so it is 800 at 60 FPS and the chance per second is
+# the same at any frame rate (measured at 200 FPS before: 21 to 23 uses per minute against 12, and
+# far more karts standing frozen after a hit).
+AI_ITEM_UPDATES = 800           # the game's number, meant for 60 updates per second
 # value number -> offsets in the Car object that it scales (see .claude/memory/mhk2-kart-parameters.md)
 TUNE_APPLY = ((2, 0xB8), (2, 0xBC),                              # lateral friction front / rear
               (2, 0xC0), (2, 0xC4), (2, 0xC8), (2, 0xCC),        # roll friction (driving direction), rolling and locked
@@ -267,6 +273,7 @@ RACE_POINTER = 0x005E8520  # the race object (getter 0x4017F0); +10h: the human 
                            # [0] player 1, [4] player 2 (taking part while its byte +308h is set);
                            # a car's vehicle is [car+44h]
 LS_GET = 0x00401940        # LevelSettings*  LevelSettings::Instance()
+RAND_MOD = 0x004922D0      # int rand_mod(int n) = rand() % n  (cdecl)
 TEXTMGR_GET = 0x00401710   # TextManager*    TextManager::Instance()
 GET_TEXT = 0x00490C70      # std::string* TextManager::GetText(std::string* out, int id, int line)
 STR_CSTR = 0x004946D0      # const char* std::string::c_str()
@@ -818,6 +825,27 @@ def build_payload(base, factors, pulls, known=None):
     a.label("ai_throttle_done")
     a.raw("59", "pop         ecx")
     a.raw("8B 46 10", "mov         eax,dword ptr [esi+10h]")                 # displaced
+    a.raw("C3", "ret")
+
+    # In place of "rand(800)" in the computer kart's decision to fire its power-up (the frame
+    # time is the update's argument, [esp+88h] at the call site): rand(800 / 60 / frame time).
+    a.label("ai_item_chance")
+    a.call("ai_item_chance_pc")
+    a.label("ai_item_chance_pc")
+    a.raw("58", "pop         eax")
+    disp = (later("ai_item_rate") - a.labels["ai_item_chance_pc"]) & 0xFFFFFFFF
+    a.raw("D9 80 " + _le(disp), "fld         dword ptr [eax+%08Xh]" % disp)
+    a.raw("D8 B4 24 8C 00 00 00", "fdiv        dword ptr [esp+0000008Ch]")   # the frame time
+    a.raw("50", "push        eax")
+    a.raw("DB 1C 24", "fistp       dword ptr [esp]")
+    a.raw("58", "pop         eax")
+    a.raw("83 F8 01", "cmp         eax,1")
+    a.jcc_short("jge", "ai_item_chance_ok")             # (a zero frame time gives a negative number)
+    a.raw("B8 01 00 00 00", "mov         eax,1")
+    a.label("ai_item_chance_ok")
+    a.raw("50", "push        eax")
+    a.call(RAND_MOD)
+    a.raw("83 C4 04", "add         esp,4")
     a.raw("C3", "ret")
 
     # -- engine sound: three samples (50/100/150), the new classes reuse the 150 one ---
@@ -2834,6 +2862,8 @@ def build_payload(base, factors, pulls, known=None):
     a.data(struct.pack("<5f", 0.9, 1.1, 1.3, *factors), "float 0.9, 1.1, 1.3, %g, %g" % tuple(factors))
     a.label("class_pull_table")
     a.data(struct.pack("<5f", 1.0, 1.0, 1.0, *pulls), "float 1, 1, 1, %g, %g" % tuple(pulls))
+    a.label("ai_item_rate")
+    a.data(struct.pack("<f", AI_ITEM_UPDATES / 60.0), "float %g: the game's 800 updates, in seconds at 60 FPS" % (AI_ITEM_UPDATES / 60.0))
     a.label("ai_catchup")
     a.data(struct.pack("<2f", *AI_CATCHUP), "float %g, %g: how much of their handicap the computer karts lose in 200 / 250 cc" % AI_CATCHUP)
     a.label("hundredth")
@@ -2918,6 +2948,8 @@ def site_patches(labels):
     retarget(0x0043A504, LS_GET, "ai_class_clamp", "AI speed factors: clamp class")
     retarget(0x0043A5BB, LS_GET, "ai_class_clamp", "AI target ranking: clamp class")
     call(0x0043A5CA, "D8 4C 90 54 8B 46 10", "ai_throttle", "AI throttle: 200 cc, 250 cc and 'Gegner' catch up")
+    call(0x0043A5E5, "68 20 03 00 00 E8 E1 7C 05 00 83 C4 04", "ai_item_chance",
+         "AI fires its power-up with the same chance per second at any frame rate")
     jump(0x0042FC14, "8B 44 BC 18 53", "engine_sound", "engine sample selection")
     jump(0x00437724, "8B 40 10 3B C3", "class_factor", "class factor table")
     call(0x0043F7F4, "D8 8F 68 02 00 00", "pull_mul", "drive torque: pull of the class")

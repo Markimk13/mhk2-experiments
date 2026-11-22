@@ -14,6 +14,9 @@ versions stay.
   drive, from walking pace through 150 cc (0 %) to full throttle (100 %); above that they get
   more engine power than you. Part of the presets: the class copies have their class's pace,
   own slots keep it.
+- Computer karts fire their power-ups as often at 200 FPS as at 60 FPS (the stock game counted
+  the chance per frame, so at 200 FPS they fired nearly twice as many and stood frozen after
+  hits far more often).
 - Tuning page: each group's values (*Kart*, *Welt*, *Gegner*) now sit under its button.
 - The detail pages explain the selected row; warnings only show on the pages that hold one of
   their values.

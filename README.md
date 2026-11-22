@@ -129,6 +129,13 @@ What remains different at 200 FPS with the switch on is that the game reads the 
 often: the speed curve is the 60 FPS curve, about 0.05 s earlier (after shifting it by that much
 the two agree within 0.1 %).
 
+**Power-ups of the computer karts** (always on, not part of the switch): the stock game lets a
+computer kart fire the power-up it holds with a chance of 1 in 800 per frame. At 60 FPS that is
+after 13 s on average, at 200 FPS after 4 s, so at 200 FPS they fired nearly twice as many
+(21 – 23 per minute instead of 12 on the first track) and hit each other far more often: karts
+stood frozen after hits and were reset onto the track. The patch counts the chance per second,
+so they fire as often at any frame rate as at 60 FPS (at 60 FPS nothing changes).
+
 The switch can also be set without starting the game:
 
 ```powershell
@@ -560,7 +567,8 @@ none of them has been looked at. If yours differs:
   English instead; the game's own texts (*Weiter*, *Zurück*, the menu titles, …) stay German.
 - The switch only corrects the suspension. Two smaller frame-rate effects stay as they are: the
   computer karts' steering logic runs every other frame, and a wheel in the air loses 0.5 % of its
-  spin per physics step.
+  spin per physics step. How often the computer karts fire their power-ups no longer depends on
+  the frame rate (see above).
 - Not tried: two-player modes in the new classes or with the switch on, a race by hand in
   the new classes or with tuning values (the computer karts raced them, see above), and
   driving on the V1.1 data (with `mhk2-01.dat` only the version label of new phantom files
