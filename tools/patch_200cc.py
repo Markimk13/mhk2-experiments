@@ -53,6 +53,7 @@ Copy both into the game folder. Nothing is written next to the original exe.
 """
 import argparse
 import hashlib
+import math
 import os
 import struct
 import sys
@@ -91,7 +92,7 @@ IMAGE_BASE = 0x400000
 SECTION_NAME = b".mod200\0"
 SECTION_RVA = 0x4C0000          # == SizeOfImage of the original
 SECTION_RAW = ORIGINAL_SIZE     # appended at the end of the file
-SECTION_SIZE = 0x2000
+SECTION_SIZE = 0x3000            # 12 KB since patch 1.10 (the "Am Limit" tables)
 SIGNATURE_PREFIX = b"MHK2 200cc mod"
 TXT_VERSION = 305           # the main menu's version line
 # The two new classes pull harder than the stock ones (PULL: thrust and traction limit, the way
@@ -177,11 +178,11 @@ PAGE_KART, PAGE_WORLD = 0x1F, 0x20
 PAGE_CLASS, PAGE_CHARACTER = 8, 6
 PAGE_OPP = 0x21
 # Items of the tuning page: 0 "Vorlage", 1 "Kart", 2 "Welt", 3 "Gegner", 4 "Zurücksetzen",
-# 5 "Eigene Vorlagen", 6 "Weiter", 7 "Zurück", 8 the warning, 9..11 the values of the three
+# 5 "Eigene Vorlagen", 6 "Weiter", 7 "Zurück", 8 the "Am Limit" line, 9..11 the values of the three
 # groups, each under its button (the title is the last item).
 # Page "Kart": items 0..6 the kart values, 7 "Zurück"; page "Welt": item 0 "Schwerkraft",
 # 1 "Zurück"; page "Gegner": item 0 "Tempo", 1 "Zurück". Behind "Zurück" each of them has the
-# warning and then the explanation of the selected row. A "row" counts 0 "Vorlage", 1..9 the values.
+# "Am Limit" line and then the explanation of the selected row. A "row" counts 0 "Vorlage", 1..9 the values.
 (TUNE_ITEM_KART, TUNE_ITEM_WORLD, TUNE_ITEM_OPP, TUNE_ITEM_RESET, TUNE_ITEM_OWN, TUNE_ITEM_NEXT,
  TUNE_ITEM_BACK) = range(1, 8)
 TUNE_Y_PRESET = 128
@@ -190,58 +191,243 @@ TUNE_Y_BUTTONS = (168, 250, 306, 420, 454, 490, 526)   # Kart, Welt, Gegner, Zur
 TUNE_Y_GROUPS = (200, 282, 338)                        # the values under "Kart", "Welt", "Gegner"
 TUNE_Y0, TUNE_Y_STEP = 152, 33  # the value rows of the pages "Kart", "Welt" and "Gegner"
 TUNE_Y_BACK = 526
-TUNE_Y_INFO = {"kart": 440, "world": 290, "opp": 290}     # the explanation of the selected row
+TUNE_Y_INFO = {"kart": 444, "world": 290, "opp": 290}     # the explanation of the selected row
 SUB_PAGES = ((PAGE_KART, 1, KART_ROWS + 1), (PAGE_WORLD, ROW_GRAVITY, ROW_GRAVITY + 1),
              (PAGE_OPP, ROW_OPP, ROW_OPP + 1))   # page, first row, row behind the last
-# Warnings: combinations of values that do not break the physics but hardly make a race (the
-# computer karts stand stuck for long, ...), found in races with computer karts. Each page has a
-# label that shows the text of the first rule whose conditions all hold, or nothing. A condition
-# is (value number 0..7, ">=" or "<=", limit). The label is the item behind the page's buttons.
-# Measured on 2026-11-19 (45 s races, six computer karts, first and second track; "stuck" =
-# seconds they stood nearly still, all six added up; the defaults: 4 to 6 s):
-# - Gewicht 400 % with Motorkraft 400 % or more: 17 to 31 s (Gewicht 400 with 200: 8 s,
-#   Gewicht 300 with 500: 7 s).
-# - Anpressdruck 0 % with Übersetzung 3.00 or more: 24 to 26 s (at 2.50: 8.5 s; Anpressdruck 25
-#   at 4.00: 11 s).
-# - Übersetzung 4.00 with Motorkraft 1000 % and Anpressdruck 100 % or less: 8 to 28 s,
-#   "Dragster" 14 to 27 s; with Anpressdruck 800, Haftung 400 ("Wahnsinn") 3 to 8 s.
-TUNE_WARNINGS = (
-    ("Hohes Gewicht und viel Motorkraft:<br>die Computer-Karts bleiben oft stecken",
-     ((3, ">=", 400), (1, ">=", 400))),
-    ("Kein Anpressdruck bei langer Übersetzung:<br>die Computer-Karts bleiben oft stecken",
-     ((6, "<=", 0), (0, ">=", 300))),
-    ("Volle Übersetzung und Motorkraft bei wenig Anpressdruck:<br>"
-     "die Computer-Karts bleiben oft stecken",
-     ((0, ">=", 400), (1, ">=", 1000), (6, "<=", 100))),
+# "Am Limit": a green line on the tuning page and its three detail pages for value sets that
+# are far from the defaults in a way that makes the race harder, and that the game still handles
+# (patch 1.9; from 1.7 to 1.8 there were yellow warnings for three bad combinations instead).
+# Near the defaults, and past what works, the line stays empty. Found in races with computer
+# karts over many value sets (.claude/memory/mhk2-tuning-class.md, "Am Limit").
+# Each value v of row k is turned into x = log2 of its distance from the default (Anpressdruck
+# shifted by 25, Gegner by 150, so 0 % has a logarithm). A row gives every channel the points
+# SCALE * sum(slope * max(0, side * x - knot)) over its terms (side +1: above the default,
+# -1: below), rounded; the game reads these points from a table per row and grid step.
+# Channel "risk" gets the products of the pairs on top (each >> shift, only where the first
+# factor is positive; the second may be negative). The line shows text 1 when "push" >= PUSH_MIN and
+# "risk" < RISK_HARD, text 2 when RISK_HARD <= "risk" < RISK_MAX, else nothing.
+LIMIT_CHANNELS = ("risk", "push", "power", "gear", "opp", "mstab", "ustab")
+LIMIT_SCALE = 32            # points per unit
+UP, DOWN = 1, -1
+# "risk": what the computer karts' races showed (2026-11-22/23, about 1250 races of 45 s with six computer
+# karts on all eight tracks, 60 FPS; tune_sweep.py / tune_sweep_fit.py): a badness of 0 is a race
+# like with the defaults, 1 one where the karts were clearly stuck, reset or in the air (airtime
+# share - 0.12 over 0.25, still seconds - 5 over 25, resets - 3 over 15, added up; extra over the
+# defaults on the same track). The weights are a ridge fit of that badness (tune_sweep_fit.py
+# emit() writes this table), none negative except in the products: Gegner above 100 % times
+# Motorkraft (the computer karts' pull is both multiplied); Motorkraft times "mstab" (much weight
+# makes them stand up on their tails and lose the ground, downforce holds them down) and
+# Übersetzung times "ustab" (downforce helps at speed).
+# "push": how much harder the race gets, set by hand: faster, less grip, less steering and brakes,
+# an unusual gravity or weight and quicker opponents count; slower karts and opponents count
+# against it.
+LIMIT_POINTS = (     # per row: channel -> terms (side, knot, slope)
+    {"risk": ((UP, 0, 0.41), (UP, 0.75, 0.59)),
+     "push": ((UP, 0, 1.0), (DOWN, 0, -1.0)),
+     "gear": ((UP, 0, 1),)},   # Übersetzung
+    {"risk": ((UP, 0, 0.06), (UP, 0.75, 0.82), (DOWN, 1.5, 0.24)),
+     "push": ((UP, 0, 0.5), (DOWN, 0, -0.5)),
+     "power": ((UP, 0, 1),)},   # Motorkraft
+    {"risk": ((UP, 0.75, 0.22), (DOWN, 0, 0.07), (DOWN, 0.75, 0.22), (DOWN, 1.5, 0.21)),
+     "push": ((DOWN, 0, 1.0), (UP, 0, -0.25)),
+     "mstab": ((UP, 0, -0.07),),
+     "ustab": ((UP, 0, 0.01),)},   # Haftung
+    {"risk": ((UP, 0, 0.37), (UP, 0.75, 0.35)),
+     "push": ((UP, 0, 0.25), (DOWN, 0, 0.25)),
+     "mstab": ((UP, 0, 0.1),)},   # Gewicht
+    {"push": ((DOWN, 0, 0.5),)},   # Bremsen
+    {"risk": ((DOWN, 0, 0.47), (DOWN, 0.75, 0.08), (DOWN, 1.5, 0.16)),
+     "push": ((DOWN, 0, 0.75), (UP, 0, -0.25))},   # Lenkung
+    {"risk": ((UP, 0.75, 0.05), (DOWN, 0, 0.56), (DOWN, 1.5, 0.07)),
+     "push": ((DOWN, 0, 0.5), (UP, 0, -0.15)),
+     "mstab": ((UP, 0, -0.02),),
+     "ustab": ((UP, 0, -0.18),)},   # Anpressdruck
+    {"risk": ((UP, 0.75, 0.19), (DOWN, 0.75, 0.16), (DOWN, 1.5, 0.51)),
+     "push": ((UP, 0, 0.5), (DOWN, 0, 0.5))},   # Schwerkraft
+    {"risk": ((UP, 0, 1.09),),
+     "push": ((UP, 0, 2.0), (DOWN, 0, -1.0)),
+     "opp": ((UP, 0, 0.35),)},   # Gegner
 )
-TXT_TUNE_WARN = (224, 225, 226, 227, 228, 229, 238, 239)    # one text per rule
-assert len(TUNE_WARNINGS) <= len(TXT_TUNE_WARN)
-TUNE_WARN_ITEM = {"tuning": 8, "kart": 8, "world": 2, "opp": 2}      # the label's item on each page
-TUNE_Y_WARN = {"tuning": 370, "kart": 392, "world": 220, "opp": 220}
-# A warning shows on the tuning page and on each detail page that has one of its values.
-TUNE_WARN_PAGE_BITS = {"tuning": 7, "kart": 1, "world": 2, "opp": 4}
+LIMIT_PAIRS = (("opp", "power", 5), ("power", "mstab", 5), ("gear", "ustab", 5))   # >> 5: / SCALE
+LIMIT_PUSH_MIN = 24         # 0.75: e.g. Übersetzung 2.65, Motorkraft 575 %, Haftung 50 %, Gegner 175 %
+LIMIT_RISK_HARD, LIMIT_RISK_MAX = 12, 24     # races there: badness 0.26 (7 % bad) / 0.42 (15 %) / 1.5 (62 %) beyond
+TXT_LIMIT = (224, 225)      # "Am Limit", "Hart am Limit", each with the points
+TXT_LIMIT_LOW, TXT_LIMIT_OVER = 306, 307     # the points alone: too little challenge / too much risk
+LIMIT_GREY, LIMIT_OVER_COLOR = "190 190 190 255", "255 140 90 255"
+LIMIT_COLORS = ("96 224 96 255", "40 255 40 255")
+TUNE_LIMIT_ITEM = {"tuning": 8, "kart": 8, "world": 2, "opp": 2}      # the label's item on each page
+TUNE_Y_LIMIT = {"tuning": 370, "kart": 384, "world": 220, "opp": 220}
+
+
+def limit_x(k, v):
+    """log2 distance of value v of row k from its default (see LIMIT_POINTS)."""
+    d = TUNE_ROWS[k][3]
+    shift = 25 if k == 6 else 150 if k == ROW_OPP - 1 else 0
+    return math.log2((v + shift) / (d + shift))
+
+
+def limit_table():
+    """Points of every channel for every grid step of every row: [row][step] -> tuple."""
+    tab = []
+    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS):
+        rows = []
+        for v in range(lo, hi + 1, step):
+            x = limit_x(k, v)
+            pts = []
+            for ch in LIMIT_CHANNELS:
+                terms = LIMIT_POINTS[k].get(ch, ())
+                p = int(round(LIMIT_SCALE * sum(slope * max(0.0, side * x - knot) for side, knot, slope in terms)))
+                pts.append(max(-128, min(127, p)))
+            rows.append(tuple(pts))
+        tab.append(rows)
+    return tab
+
+
+def tune_limit(values):
+    """What the game computes: (level 0 / 1 / 2, risk, push) for nine values; mirrors tune_limit."""
+    tab = limit_table()
+    ch = [0] * len(LIMIT_CHANNELS)
+    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS):
+        idx = min(max(0, values[k] - lo) // step, (hi - lo) // step)
+        for c, p in enumerate(tab[k][idx]):
+            ch[c] += p
+    for a, b, shift in LIMIT_PAIRS:
+        pa, pb = ch[LIMIT_CHANNELS.index(a)], ch[LIMIT_CHANNELS.index(b)]
+        if pa > 0:
+            ch[0] += (pa * pb) >> shift
+    risk, push = ch[0], ch[1]
+    level = 0 if push < LIMIT_PUSH_MIN or risk >= LIMIT_RISK_MAX else 2 if risk >= LIMIT_RISK_HARD else 1
+    return level, risk, push
+
+
+def limit_line(values, lang="de", char=0):
+    """The line the tuning pages show for nine values (with its tags, and the top speed for the
+    character), as the game prints it."""
+    level, risk, push = tune_limit(values)
+    texts = dict(text_overrides(lang, "x", lines_only=True))
+    tid = (TXT_LIMIT_OVER if risk >= LIMIT_RISK_MAX else TXT_LIMIT_LOW if push < LIMIT_PUSH_MIN
+           else TXT_LIMIT[level - 1])
+    return texts[tid] % (max(0, push), max(0, risk)) + texts[TXT_TOP] % top_kmh(values, char)
+
+
+# Top speed (1.9, the user asked on 2026-11-23): the tuning pages and the pause page show the
+# top speed the values give, in km/h (1 unit/s = 3.6 km/h). Measured on an endless straight
+# (.claude/sandbox/tools/topspeed.py: about 420 runs of 60 FPS physics, all seven characters)
+# and fitted by a force balance (fit error: median 1.8 %, 90 % of the sets within 6.6 %, every
+# built-in preset within 2.5 %):
+# - drive: the engine's torque curve (1.4 at 0 rpm, 1.0 at 2000, 0.6 at 4000, 0 at 6000) times
+#   TOP_DRIVE * k * Motorkraft, at most TOP_TRACTION * Motorkraft and TOP_DRIVE_MAX, in top gear:
+#   engine speed = k * speed / Übersetzung, k = 47.75 * top gear * diff ratio of the character.
+# - air: TOP_AIR * speed^2.
+# - the chassis on the road: once the downforce (0.5 * Anpressdruck * speed^2, the speed limited
+#   as in the tuning class) and the weight (mass * 19.62 * TOP_LOAD_G * Schwerkraft) exceed
+#   TOP_CAP times the weight at stock gravity, the chassis carries the rest and rubs on the
+#   road: TOP_RUB + TOP_RUB_LIGHT / Gewicht + TOP_RUB_G * mass * Schwerkraft + TOP_RUB_LOAD *
+#   the load above that limit. This makes the "wall" at about 61 units/s that most sets hit.
+# Grip, brakes and steering made no difference. The characters differ in mass and k:
+TOP_CHARS = ((20, 0.5 * 6.0), (20, 0.5 * 6.0), (17, 0.55 * 6.0), (18, 0.45 * 7.0),
+             (23, 0.55 * 5.5), (17, 0.52 * 6.7), (21, 0.5 * 6.2))    # moorhuhn .. hank: mass, top gear * diff ratio
+TOP_K = 47.75
+TOP_DRIVE, TOP_TRACTION, TOP_DRIVE_MAX = 2.2548, 444.0, 1048.0
+TOP_AIR = 0.01862
+TOP_CAP, TOP_LOAD_G = 6.039, 1.0249
+TOP_RUB, TOP_RUB_LIGHT, TOP_RUB_G, TOP_RUB_LOAD = 413.2, 63.8, -0.1994, 0.01078
+TOP_STEPS = 20                  # bisection steps between 0 and the speed of 6000 rpm
+TOP_KMH = 3.6
+TXT_TOP = 206                   # the line on the tuning pages (behind the "Am Limit" line)
+# Speed in the race (1.9, the user asked on 2026-11-23): Hud::Draw (0x418EF0, ecx = the Hud,
+# [Hud+4] = the player whose view it draws) prints "Runde %d/3" (text 100) at x 100, y 20 and,
+# in races with opponents ([GameMode+1Ch] != 0), "Position %d" (101) at y 50, both scaled by the
+# screen ([esp+20h] holds the x, [esp+10h] the y scale). Both paths meet at 0x41920D; there the
+# patch adds the speed of that player's car (the CarManager's car list, |velocity| * 3.6) below.
+HUD_SPEED_HOOK, HUD_SPEED_BACK = 0x0041920D, 0x00419212
+HUD_GAME_MODE = 0x00403790      # returns the game mode object; +1Ch: 0 time trial, else with opponents
+HUD_FONT = 0x004014E0           # the text renderer (Instance)
+HUD_DRAW_TEXT = 0x00490820      # renderer->DrawText(const char*, float x, float y), thiscall
+CAR_MANAGER = 0x005E8520        # CarManager*; +10h / +14h: begin and end of its car list
+CAR_VELOCITY = 0x2B4
+HUD_SPEED_Y = (50.0, 80.0)      # without / with the position line
+TXT_SPEED = 209
+TXT_TOP_PAUSE = (207, 208)      # on the pause page: behind the values (tuning class), below the class line (others)
+
+
+def top_speed(values, char=0):
+    """Top speed in units/s for the values (gearing in hundredths, the rest in percent) and a
+    character; mirrors tune_top (which computes in single precision)."""
+    mass, gd = TOP_CHARS[char if 0 <= char < len(TOP_CHARS) else 0]
+    k = TOP_K * gd
+    s, pull, w, d, g = (values[n] * 0.01 for n in (0, 1, 3, 6, 7))
+    m = mass * w
+    kv = k / s
+    drive = TOP_DRIVE * k * pull
+    drive_cap = min(TOP_TRACTION * pull, TOP_DRIVE_MAX)
+    vcl = DOWNFORCE_SPEED * math.sqrt(values[3] / values[6]) if values[6] > 0 else 1e9
+    base = m * -STOCK_GRAVITY_Y * (TOP_LOAD_G * g - TOP_CAP)
+    rub = TOP_RUB + TOP_RUB_LIGHT / w + TOP_RUB_G * m * g
+    lo, hi = 0.0, 6000.0 / kv
+    for _ in range(TOP_STEPS):
+        v = (lo + hi) * 0.5
+        rpm = kv * v
+        t = 1.4 - 0.0002 * rpm if rpm < 4000 else 1.8 - 0.0003 * rpm
+        th = min(drive * t, drive_cap)
+        vd = min(v, vcl)
+        over = 0.005 * values[6] * vd * vd + base
+        res = TOP_AIR * v * v + (TOP_RUB_LOAD * over + rub if over > 0 else 0.0)
+        if res < th:
+            lo = v
+        else:
+            hi = v
+    return lo
+
+
+TOP_CONSTS = ("hundredth", "rpm_max", "drive", "traction", "drive_max", "no_limit", "downforce_speed",
+              "load_g", "cap", "gravity", "rub_g", "rub_light", "rub", "downforce", "half", "rpm_mid",
+              "torque_slope1", "torque_at0", "torque_slope2", "torque_at0_2", "rub_load", "air", "kmh")
+
+
+def top_const(name):
+    return {"hundredth": 0.01, "rpm_max": 6000.0, "drive": TOP_DRIVE, "traction": TOP_TRACTION,
+            "drive_max": TOP_DRIVE_MAX, "no_limit": 1e9, "downforce_speed": DOWNFORCE_SPEED,
+            "load_g": TOP_LOAD_G, "cap": TOP_CAP, "gravity": -STOCK_GRAVITY_Y, "rub_g": TOP_RUB_G,
+            "rub_light": TOP_RUB_LIGHT, "rub": TOP_RUB, "downforce": 0.005, "half": 0.5,
+            "rpm_mid": 4000.0, "torque_slope1": 0.0002, "torque_at0": 1.4, "torque_slope2": 0.0003,
+            "torque_at0_2": 1.8, "rub_load": TOP_RUB_LOAD, "air": TOP_AIR, "kmh": TOP_KMH}[name]
+
+
+def top_kmh(values, char=0):
+    return int(round(top_speed(values, char) * TOP_KMH))
+
+
 # Built-in presets of the "Vorlage" row: name and the nine values in the order of TUNE_ROWS.
 # "Tempo" of the class copies: 150 cc's computer karts are what 0 % gives; 50 cc's drive at
 # 0.7 / 0.9 of that, about -25 %; 100 cc's at 0.8 / 0.9, nearer 0 % than -25 %.
 # Left / right on the row copies the previous / next one into the values. The row shows the
 # first preset that equals the values, or "Ungespeichert". The classes' gearing (1.468, 1.545)
 # does not fit two decimals, so their copies read 1.47 and 1.55.
+# Rakete, Formel 1, Rallye, Glatteis, Schwergewicht and Wahnsinn were changed in 1.9: searched
+# with the "Am Limit" model and raced on all eight tracks (tune_sweep.py, preset_search.py); their
+# values up to 1.8 left the computer karts stuck or reset (badness 0.4 to 1.4, see the note).
+# 1.9 also dropped "Dragster" (no variant of it raced well) and added Bremsversagen, Federleicht,
+# Hetzjagd and Mondrakete, found the same way.
 TUNE_PRESETS = (
     ("50 cc",         (90, 100, 100, 100, 100, 100, 100, 100, -25)),
     ("100 cc",        (110, 100, 100, 100, 100, 100, 100, 100, 0)),
     ("150 cc",        (130, 100, 100, 100, 100, 100, 100, 100, 0)),
     ("200 cc",        (147, 150, 100, 100, 100, 100, 100, 100, 50)),
     ("250 cc",        (155, 200, 100, 100, 100, 100, 100, 100, 100)),   # = the defaults
-    ("Rakete",        (250, 500, 200, 100, 200, 100, 100, 100, 100)),
-    ("Formel 1",      (200, 600, 300, 100, 300, 100, 300, 100, 100)),
-    ("Rallye",        (155, 300, 75, 100, 100, 150, 50, 100, 100)),
-    ("Glatteis",      (155, 200, 50, 100, 100, 100, 50, 100, 100)),
-    ("Schwergewicht", (155, 200, 100, 300, 200, 100, 100, 100, 100)),
+    ("Rakete",        (345, 325, 250, 100, 400, 200, 250, 100, 100)),
+    ("Formel 1",      (360, 300, 200, 100, 400, 200, 350, 100, 100)),
+    ("Rallye",        (180, 325, 50, 75, 100, 125, 100, 100, 100)),
+    ("Glatteis",      (155, 200, 50, 100, 75, 125, 75, 100, 100)),
+    ("Bremsversagen", (265, 250, 100, 100, 25, 100, 325, 100, 100)),
+    ("Schwergewicht", (155, 250, 100, 250, 250, 100, 200, 100, 100)),
     ("Federgewicht",  (155, 100, 100, 50, 100, 100, 100, 100, 100)),
-    ("Dragster",      (400, 1000, 200, 150, 100, 50, 50, 100, 100)),
+    ("Federleicht",   (290, 325, 175, 25, 100, 100, 175, 150, 100)),
+    ("Hetzjagd",      (175, 275, 150, 100, 100, 100, 100, 100, 200)),
     ("Schnecke",      (50, 100, 100, 100, 100, 100, 100, 100, 100)),
-    ("Wahnsinn",      (400, 1000, 400, 50, 400, 200, 800, 100, 100)),
+    ("Wahnsinn",      (315, 350, 50, 25, 25, 100, 275, 300, 100)),
     ("Mondfahrt",     (155, 200, 100, 100, 100, 100, 100, 25, 100)),
+    ("Mondrakete",    (360, 325, 175, 100, 100, 200, 350, 50, 100)),
     ("Jupiter",       (155, 200, 100, 100, 100, 100, 100, 250, 100)),
 )
 TUNE_PRESET_DEFAULT = 4         # "250 cc"
@@ -275,6 +461,7 @@ VALUES8_MAGIC = 0x544C4557      # "WELT"
 TUNE_LAST = VALUES8_MARK + 4    # number of the preset copied last: where left / right count from
 OLD_TUNE_LAST = TUNE_VALUES + 4 * 7
 OLD_PRESETS = 14                # built-in presets up to 1.6: the own slots were numbered from there
+PRESETS_18 = 16                 # ... and in 1.7 / 1.8 (a save without OPP_MARK is renumbered once)
 # Patch 1.9 added "Gegner" as the ninth value; a save without this marker gets its default once
 # (up to 1.8 a character number was there).
 OPP_MARK = TUNE_LAST + 4
@@ -292,6 +479,12 @@ PAGE_NAME = 0x13                # the game's name entry page; renames a slot whi
 OWN_Y_SLOT, OWN_Y_VALUES = 130, 184
 OWN_Y_BUTTONS = (290, 330, 370, 410)            # Laden, Speichern, Umbenennen, Löschen
 OWN_Y_BACK = 526
+# The pause page (0Ah, 0Bh: without / with "Neustart") shows the class, the 60 FPS switch and, in
+# the tuning class, the preset and the values (patch 1.9). Its stock items move down for them.
+PAUSE_Y_STOCK = (180, 220, 270, 310, 390, 430, 470)   # music, value, effects, value, continue, 430, 470
+PAUSE_Y_SHIFT = 40
+PAUSE_Y_HEAD, PAUSE_Y_VALUES = 111, 144               # the line with class and switch, the values
+assert PAUSE_Y_STOCK[-1] + PAUSE_Y_SHIFT <= 550
 
 # --- addresses inside the original executable -------------------------------
 GP_GET = 0x00403790        # GameParameters* GameParameters::Instance()   (clobbers eax, ecx)
@@ -320,6 +513,7 @@ ARCHIVE_FIND = 0x00451360      # Entry* FileManager::Find(Archive*, const char* 
 SETTINGS_LOAD = 0x004136F0     # GameParameters::Load(const char* file)
 HIGHSCORE_INSERT = 0x00412AE0  # Menu::InsertTimeTrialHighscore(int kart): the name is the std::string at Menu+17Ch
 PAGE_SET = 0x00413DD0          # void Menu::SetPage(int page): builds the page's items
+PAUSE_PAGE_DONE = 0x004146D6  # SetPage's common end (the pause pages jump there when built)
 PAGE_BUILD_LAST = 0x00422420   # the last of the three page builders SetPage calls (result pages)
 PAGE_UPDATE_MAIN = 0x0041D400  # int Menu::UpdateMainPages(float dt): input of the main menu pages
 RESULT_UPDATE = 0x00421970     # int Menu::UpdateResultPages(float dt): result pages 0Eh..15h, the name entry among them
@@ -392,7 +586,8 @@ TXT_KART_BUTTON, TXT_WORLD_BUTTON = 234, 235    # the tuning page's buttons to t
 TXT_KART_TITLE, TXT_WORLD_TITLE = 236, 237
 TXT_TUNE_RESET = 0xF8      # 248: "Zurücksetzen"
 TXT_TUNE_PRESET = 0xF9     # 249: the "Vorlage" row, a wsprintf format for the name
-TXT_TUNE_PRESET0 = 0xFA    # 250..265: names of the presets
+TXT_TUNE_PRESET0 = 0xFA    # 250..265: names of the first 16 presets
+TXT_TUNE_PRESET16 = 226    # 226..228: names of presets 16.. (patch 1.9; 266.. is taken)
 TXT_TUNE_OWN = 278         # "Ungespeichert"
 TXT_OWN_DEFAULT = 279      # default name of a slot, "Eigene %d"
 TXT_OWN_TITLE = 266        # 266..277 without 270: the page of own presets (the game takes every
@@ -402,8 +597,17 @@ TXT_OWN_SLOT = 268         # "Platz %d: %s"
 TXT_OWN_VALUES = 269       # the values of an own slot, 10 numbers (OWN_VALUES_BUF)
 OWN_VALUES_BUF = 0x180     # buffer for that text
 TXT_OWN_EMPTY = 271
-assert TXT_TUNE_PRESET0 + len(TUNE_PRESETS) <= TXT_OWN_TITLE
+assert TXT_TUNE_PRESET0 + 16 == TXT_OWN_TITLE and TXT_LIMIT[-1] < TXT_TUNE_PRESET16
+assert TXT_TUNE_PRESET16 + len(TUNE_PRESETS) - 16 <= TXT_TUNE_ROW8 - 4    # 229 is still free
+
+
+def preset_text_id(n):
+    """Text id of the name of built-in preset n."""
+    return TXT_TUNE_PRESET0 + n if n < 16 else TXT_TUNE_PRESET16 + n - 16
 assert len(TUNE_ROWS) == 9          # rows 10.. would need text ids of their own
+TXT_PAUSE_PLAIN, TXT_PAUSE_TUNING = 238, 239     # the pause page's line: class, (preset,) switch
+TXT_PAUSE_VALUES = 229     # ... and the tuning values below it
+TXT_CLASS0 = 332           # class names: 332 + class (335..337 are the patch's)
 TXT_OWN_LOAD = 272         # 272..275: Laden, Speichern, Umbenennen, Löschen
 TXT_OWN_RENAME_TITLE = 276
 TXT_OWN_RENAME = 277       # the name page's prompt, "... Platz %d ..."
@@ -442,7 +646,9 @@ TEXTS = {
         "phys": "60-FPS-Fahrphysik", "off": "Aus", "on": "An", "tuning": "Tuning",
         "rows": ("Übersetzung", "Motorkraft", "Haftung", "Gewicht", "Bremsen", "Lenkung",
                  "Anpressdruck", "Schwerkraft"),
-        "warn": tuple(text for text, _ in TUNE_WARNINGS),
+        "limit": ("Am Limit: extrem, aber noch fahrbar", "Hart am Limit: gerade noch fahrbar"),
+        "points": "Anspruch %d, Risiko %d", "points_low": "Anspruch %%d (Am Limit ab %d), Risiko %%d",
+        "points_over": "Anspruch %%d, Risiko %%d: zu riskant (fahrbar bis %d)",
         "kart": "Kart", "world": "Welt", "reset": "Zurücksetzen", "preset": "Vorlage",
         "presets": tuple(name for name, _ in TUNE_PRESETS),
         "unsaved": "Ungespeichert", "own_default": "Eigene", "own": "Eigene Vorlagen",
@@ -454,7 +660,7 @@ TEXTS = {
         "unlock": "Du hast die %s Meisterschaft<br>in der %scc-Klasse freigeschaltet!",
         "first": "erste", "second": "zweite",
         "tuning_unlocked": "Du hast die Tuning-Klasse freigeschaltet!",
-        "opp": "Gegner", "opp_row": "Tempo",
+        "opp": "Gegner", "opp_row": "Tempo", "class": "Klasse", "top": "Top speed:", "top_about": "ca. %d km/h",
         "opp_info": "Wie schnell fahren die Computer-Karts?<br>-100 %: Schritttempo, 0 %: wie in 150 cc"
                     "<br>50 %: wie in 200 cc, 100 %: wie in 250 cc (Vollgas wie Du)"
                     "<br>über 100 %: Vollgas und mehr Motorkraft als Du",
@@ -477,14 +683,14 @@ TEXTS = {
         "phys": "60 FPS driving physics", "off": "Off", "on": "On", "tuning": "Tuning",
         "rows": ("Gearing", "Engine power", "Grip", "Weight", "Brakes", "Steering",
                  "Downforce", "Gravity"),
-        "warn": ("High weight and much engine power:<br>the computer karts often get stuck",
-                 "No downforce with long gearing:<br>the computer karts often get stuck",
-                 "Full gearing and engine power with little downforce:<br>"
-                 "the computer karts often get stuck"),
+        "limit": ("Pushing the limits: still raceable", "Right at the limit: only just raceable"),
+        "points": "challenge %d, risk %d", "points_low": "Challenge %%d (pushing the limits from %d), risk %%d",
+        "points_over": "Challenge %%d, risk %%d: too risky (raceable up to %d)",
         "kart": "Kart", "world": "World", "reset": "Reset", "preset": "Preset",
         "presets": ("50 cc", "100 cc", "150 cc", "200 cc", "250 cc", "Rocket", "Formula 1",
-                    "Rally", "Black Ice", "Heavyweight", "Featherweight", "Dragster", "Snail",
-                    "Madness", "Moon Ride", "Jupiter"),
+                    "Rally", "Black Ice", "Brake Failure", "Heavyweight", "Featherweight",
+                    "Feather Light", "Hot Pursuit", "Snail", "Madness", "Moon Ride", "Moon Rocket",
+                    "Jupiter"),
         "unsaved": "Unsaved", "own_default": "Custom", "own": "Own presets",
         "slot": "Slot", "empty": "(empty)", "load": "Load", "save": "Save",
         "rename": "Rename", "delete": "Delete", "rename_title": "Rename preset",
@@ -494,7 +700,7 @@ TEXTS = {
         "unlock": "You have unlocked the %s championship<br>in the %scc class!",
         "first": "first", "second": "second",
         "tuning_unlocked": "You have unlocked the tuning class!",
-        "opp": "Opponents", "opp_row": "Pace",
+        "opp": "Opponents", "opp_row": "Pace", "class": "Class", "top": "Top speed:", "top_about": "about %d km/h",
         "opp_info": "How fast do the computer karts drive?<br>-100 %: walking pace, 0 %: as in 150 cc"
                     "<br>50 %: as in 200 cc, 100 %: as in 250 cc (full throttle, like you)"
                     "<br>above 100 %: full throttle and more engine power than you",
@@ -516,12 +722,13 @@ TEXTS = {
 }
 assert all(TEXTS[lang].keys() == TEXTS["de"].keys() for lang in TEXTS)
 assert all(len(TEXTS[lang]["info"]) == PRESET_VALUES for lang in TEXTS)
-assert all(len(TEXTS[lang]["presets"]) == len(TUNE_PRESETS) and len(TEXTS[lang]["warn"]) == len(TUNE_WARNINGS)
+assert all(len(TEXTS[lang]["presets"]) == len(TUNE_PRESETS) and len(TEXTS[lang]["limit"]) == len(TXT_LIMIT)
            and len(TEXTS[lang]["rows"]) == PRESET_VALUES for lang in TEXTS)
 
 
-def text_overrides(lang="de", version=None):
-    """The contents of text-20.csv in one language; version = the patch version on the main menu."""
+def text_overrides(lang="de", version=None, lines_only=False):
+    """The contents of text-20.csv in one language; version = the patch version on the main menu.
+    lines_only: the (id, text) pairs instead."""
     t = TEXTS[lang]
     title = "<font 30px_redoutline>%s</font>"
     row = dict(zip(range(TXT_TUNE_ROW0, TXT_TUNE_ROW0 + 7), t["rows"][:7]))
@@ -536,12 +743,15 @@ def text_overrides(lang="de", version=None):
         (TXT_TUNE_ROW0, r[0] + ": %d.%02d"),
     ] + [(n, row[n] + ": %d %%") for n in range(TXT_TUNE_ROW0 + 1, TXT_TUNE_ROW0 + 7)] + [
         (TXT_TUNE_ROW8, r[7] + ": %d %%"),
-    ] + [(TXT_TUNE_WARN[n], "<scale 0.6><color 255 210 64 255>%s</color></scale>" % text)
-         for n, text in enumerate(t["warn"])] + [
+    ] + [(TXT_LIMIT[n], "<scale 0.6><color %s>%s</color> <color %s>(%s)</color></scale>"
+          % (color, text, LIMIT_GREY, t["points"])) for n, (color, text) in enumerate(zip(LIMIT_COLORS, t["limit"]))] + [
+        (TXT_LIMIT_LOW, "<scale 0.6><color %s>%s</color></scale>" % (LIMIT_GREY, t["points_low"] % LIMIT_PUSH_MIN)),
+        (TXT_LIMIT_OVER, "<scale 0.6><color %s>%s</color></scale>"
+         % (LIMIT_OVER_COLOR, t["points_over"] % (LIMIT_RISK_MAX - 1))),
         (234, t["kart"]), (235, t["world"]),
         (236, title % t["kart"]), (237, title % t["world"]),
         (248, t["reset"]), (249, t["preset"] + ": %s"),
-    ] + [(TXT_TUNE_PRESET0 + n, name) for n, name in enumerate(t["presets"])] + [
+    ] + [(preset_text_id(n), name) for n, name in enumerate(t["presets"])] + [
         (TXT_TUNE_OWN, t["unsaved"]),
         (TXT_OWN_DEFAULT, t["own_default"] + " %d"),
         (266, title % t["own"]), (267, t["own"]),
@@ -552,6 +762,17 @@ def text_overrides(lang="de", version=None):
         (TXT_GROUP_TEXTS[1], "<scale 0.6>%s %%d %%%%</scale>" % r[7]),
         (TXT_GROUP_TEXTS[2], "<scale 0.6>%s %%d %%%%</scale>" % t["opp_row"]),
         (271, "<scale 0.6>%s</scale>" % t["empty"]),
+        (TXT_PAUSE_PLAIN, "<scale 0.6>%s %%s, %s %%s</scale>" % (TXT_GROUP % (t["class"] + ":"),
+                                                                    TXT_GROUP % (t["phys"] + ":"))),
+        (TXT_PAUSE_TUNING, "<scale 0.6>%s %%s, %s %%s, %s %%s</scale>" % (
+            TXT_GROUP % (t["class"] + ":"), TXT_GROUP % (t["preset"] + ":"), TXT_GROUP % (t["phys"] + ":"))),
+        (TXT_PAUSE_VALUES, "<scale 0.5>%s %%d.%%02d, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%,<br>" % r[0:4]
+         + "%s %%d %%%%, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%<br>" % r[4:8]
+         + TXT_GROUP % (t["opp"] + ":") + " %s %%d %%%%</scale>" % t["opp_row"]),
+        (TXT_TOP, "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
+        (TXT_TOP_PAUSE[0], "<scale 0.5>, %s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
+        (TXT_SPEED, "<scale 0.75>%d km/h</scale>"),
+        (TXT_TOP_PAUSE[1], "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (272, t["load"]), (273, t["save"]), (274, t["rename"]), (275, t["delete"]),
         (276, title % t["rename_title"]),
         (277, t["rename_prompt"]),
@@ -578,7 +799,14 @@ def text_overrides(lang="de", version=None):
     longest = dict(lines)
     widest = (400, 1000, 400, 400, 400, 200, 800, 300, 100)
     assert len(longest[269].replace("%d.%02d", "4.00") % widest[1:]) < OWN_VALUES_BUF
+    assert len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) < OWN_VALUES_BUF
     assert len(longest[TXT_GROUP_TEXTS[0]].replace("%d.%02d", "4.00") % widest[1:7]) < 0x100
+    assert all(len(longest[n] % (999, 999)) + len(longest[TXT_TOP] % 999) < 0x100
+               for n in TXT_LIMIT + (TXT_LIMIT_LOW, TXT_LIMIT_OVER))
+    assert len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999) < OWN_VALUES_BUF
+    assert len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999) < 0x100
+    if lines_only:
+        return lines
     return ("# Moorhuhn Kart 2 - 200 cc / 250 cc / tuning mod. The game merges this file over text.csv.\r\n"
             + "".join("%d;%s\r\n" % line for line in lines))
 
@@ -1233,7 +1461,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8B 88 " + _le(OLD_TUNE_LAST), "mov         ecx,dword ptr [eax+%08Xh]" % OLD_TUNE_LAST)
     a.raw("83 F9 %02X" % OLD_PRESETS, "cmp         ecx,%s" % _imm(OLD_PRESETS))
     a.jcc_short("jb", "values8_last")
-    a.raw("83 C1 %02X" % (len(TUNE_PRESETS) - OLD_PRESETS), "add         ecx,%s" % _imm(len(TUNE_PRESETS) - OLD_PRESETS))
+    a.raw("83 C1 %02X" % (PRESETS_18 - OLD_PRESETS), "add         ecx,%s" % _imm(PRESETS_18 - OLD_PRESETS))   # 1.8 numbers
     a.label("values8_last")
     a.raw("89 88 " + _le(TUNE_LAST), "mov         dword ptr [eax+%08Xh],ecx" % TUNE_LAST)
     a.raw("C7 80 %s %s" % (_le(OLD_TUNE_LAST), _le(TUNE_ROWS[-1][3])),
@@ -1258,6 +1486,15 @@ def build_payload(base, factors, pulls, known=None, version=None):
     off = TUNE_VALUES + 4 * (ROW_OPP - 1)
     a.raw("C7 80 %s %s" % (_le(off), _le(TUNE_ROWS[ROW_OPP - 1][3])),
           "mov         dword ptr [eax+%08Xh],%s" % (off, _imm(TUNE_ROWS[ROW_OPP - 1][3])))
+    # ... and the own slots in the "Vorlage" row moved behind the 1.9 presets
+    a.raw("8B 88 " + _le(TUNE_LAST), "mov         ecx,dword ptr [eax+%08Xh]" % TUNE_LAST)
+    a.raw("83 F9 %02X" % PRESETS_18, "cmp         ecx,%s" % _imm(PRESETS_18))
+    a.jcc_short("jb", "opp_last_done")
+    a.raw("83 F9 %02X" % (PRESETS_18 + OWN_SLOTS), "cmp         ecx,%s" % _imm(PRESETS_18 + OWN_SLOTS))
+    a.jcc_short("jae", "opp_last_done")
+    a.raw("83 C1 %02X" % (len(TUNE_PRESETS) - PRESETS_18), "add         ecx,%s" % _imm(len(TUNE_PRESETS) - PRESETS_18))
+    a.raw("89 88 " + _le(TUNE_LAST), "mov         dword ptr [eax+%08Xh],ecx" % TUNE_LAST)
+    a.label("opp_last_done")
     a.raw("C7 80 %s %s" % (_le(OPP_MARK), _le(OPP_MAGIC)),
           "mov         dword ptr [eax+%08Xh],%s" % (OPP_MARK, _imm(OPP_MAGIC)))
     a.label("opp_done")
@@ -1336,7 +1573,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 C4 0C", "add         esp,0Ch")
     a.raw("C3", "ret")
 
-    # Where are the eight words of preset eax (0..15 built-in, 16..23 own slots)? Returns
+    # Where are the eight words of preset eax (built-in, then the own slots)? Returns
     # edi = the address, "equal" if it is an empty own slot. ebx = GameParameters, ebp = tune_T.
     a.label("tune_preset_ptr")
     a.raw("83 F8 %02X" % len(TUNE_PRESETS), "cmp         eax,%s" % _imm(len(TUNE_PRESETS)))
@@ -1432,7 +1669,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # (at least 10h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("tune_preset_name")
     a.raw("83 F8 %02X" % len(TUNE_PRESETS), "cmp         eax,%s" % _imm(len(TUNE_PRESETS)))
+    a.jcc_short("jae", "tune_preset_name_other")
+    a.raw("83 F8 10", "cmp         eax,10h")
     a.jcc_short("jb", "tune_preset_name_text")
+    d = (TXT_TUNE_PRESET16 - 16 - TXT_TUNE_PRESET0) & 0xFF    # presets 16..: their own range
+    a.raw("83 C0 %02X" % d, "add         eax,%s" % _imm(d - 0x100 & 0xFFFFFFFF))
+    a.jmp_short("tune_preset_name_text")
+    a.label("tune_preset_name_other")
     a.raw("83 F8 FF", "cmp         eax,0FFFFFFFFh")
     a.jcc_short("jne", "tune_preset_name_own")
     a.raw("B8 " + _le(TXT_TUNE_OWN - TXT_TUNE_PRESET0), "mov         eax,%s" % _imm(TXT_TUNE_OWN - TXT_TUNE_PRESET0))   # -> "Ungespeichert"
@@ -1556,6 +1799,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # eight values as words, ecx = its "Tempo", eax = buffer (OWN_VALUES_BUF bytes),
     # ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("values_text")
+    a.raw("56", "push        esi")
+    a.raw("BE " + _le(TXT_OWN_VALUES), "mov         esi,%s" % _imm(TXT_OWN_VALUES))
+    a.call("values_text_id")
+    a.raw("5E", "pop         esi")
+    a.raw("C3", "ret")
+    # The same with the format esi (the pause page's, TXT_PAUSE_VALUES).
+    a.label("values_text_id")
     a.raw("57", "push        edi")
     a.raw("8B F8", "mov         edi,eax")
     a.raw("51", "push        ecx")                # the last argument
@@ -1571,7 +1821,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("F7 F9", "idiv        eax,ecx")
     a.raw("52", "push        edx")
     a.raw("50", "push        eax")
-    a.raw("68 " + _le(TXT_OWN_VALUES), "push        %s" % _imm(TXT_OWN_VALUES))
+    a.raw("56", "push        esi")
     a.raw("57", "push        edi")
     a.call("tune_printf")
     n = 4 * (1 + PRESET_VALUES - 1 + 2 + 2)
@@ -1677,8 +1927,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # [esp+4] = address of the page number; the menu's own page number is still the old
     # one): builds the tuning page, the pages "Kart" and "Welt" and the page of own presets.
     # Any page that is built ends a renaming on the name page.
-    def warn_label(y_push_hex, y_push_text, eax_hex, eax_text, routine="tune_warn_text", size=0x100):
-        """Adds the warning label (an empty text while no rule holds; eax = the page), or the label
+    def limit_label(y_push_hex, y_push_text, eax_hex, eax_text, routine="tune_limit_text", size=0x100):
+        """Adds the "Am Limit" label (an empty text while the values are not am Limit), or the label
         of another text routine (edx = buffer of `size` bytes, eax set by the given instruction).
         esi = menu, ebp = tune_T.
         The y is pushed after the text is made, so it must not be in eax, ecx or edx."""
@@ -1744,12 +1994,12 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.raw("B8 " + _le(text_id), "mov         eax,%s" % _imm(text_id))
         a.raw("BA " + _le(y), "mov         edx,%s" % _imm(y))
         a.call("tune_button")
-    y = TUNE_Y_WARN["tuning"]
-    assert TUNE_WARN_ITEM["tuning"] == TUNE_ITEM_BACK + 1 and TUNE_ITEM_GROUPS == TUNE_ITEM_BACK + 2
-    warn_label("68 " + _le(y), "push        %s" % _imm(y),
+    y = TUNE_Y_LIMIT["tuning"]
+    assert TUNE_LIMIT_ITEM["tuning"] == TUNE_ITEM_BACK + 1 and TUNE_ITEM_GROUPS == TUNE_ITEM_BACK + 2
+    limit_label("68 " + _le(y), "push        %s" % _imm(y),
                "B8 " + _le(PAGE_TUNING), "mov         eax,%s" % _imm(PAGE_TUNING))   # item 8
     for k, y in enumerate(TUNE_Y_GROUPS):                       # items 9..11: under "Kart", "Welt", "Gegner"
-        warn_label("68 " + _le(y), "push        %s" % _imm(y),
+        limit_label("68 " + _le(y), "push        %s" % _imm(y),
                    "B8 " + _le(k), "mov         eax,%s" % _imm(k), "group_text")
     a.raw("B8 " + _le(TXT_TUNE_TITLE), "mov         eax,%s" % _imm(TXT_TUNE_TITLE))
     a.call("tune_title")
@@ -1828,7 +2078,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("33 D2", "xor         edx,edx")
     a.raw("C3", "ret")
 
-    # The pages "Kart", "Welt" and "Gegner": one arrow item per row, then "Zurück", the warning,
+    # The pages "Kart", "Welt" and "Gegner": one arrow item per row, then "Zurück", the "Am Limit" line,
     # the explanation of the selected row and the title. eax = the page.
     a.label("sub_build")
     a.raw("60", "pushad")
@@ -1861,13 +2111,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("B8 " + _le(TXT_BACK), "mov         eax,%s" % _imm(TXT_BACK))
     a.raw("BA " + _le(TUNE_Y_BACK), "mov         edx,%s" % _imm(TUNE_Y_BACK))
     a.call("tune_button")
-    a.raw("BF " + _le(TUNE_Y_WARN["kart"]), "mov         edi,%s" % _imm(TUNE_Y_WARN["kart"]))   # (the text routine clobbers eax)
+    a.raw("BF " + _le(TUNE_Y_LIMIT["kart"]), "mov         edi,%s" % _imm(TUNE_Y_LIMIT["kart"]))   # (the text routine clobbers eax)
     a.raw("83 FB %02X" % PAGE_KART, "cmp         ebx,%s" % _imm(PAGE_KART))
-    a.jcc_short("je", "sub_build_warn")
-    assert TUNE_Y_WARN["world"] == TUNE_Y_WARN["opp"] and TUNE_Y_INFO["world"] == TUNE_Y_INFO["opp"]
-    a.raw("BF " + _le(TUNE_Y_WARN["world"]), "mov         edi,%s" % _imm(TUNE_Y_WARN["world"]))
-    a.label("sub_build_warn")
-    warn_label("57", "push        edi", "8B C3", "mov         eax,ebx")   # behind "Zurück"
+    a.jcc_short("je", "sub_build_limit")
+    assert TUNE_Y_LIMIT["world"] == TUNE_Y_LIMIT["opp"] and TUNE_Y_INFO["world"] == TUNE_Y_INFO["opp"]
+    a.raw("BF " + _le(TUNE_Y_LIMIT["world"]), "mov         edi,%s" % _imm(TUNE_Y_LIMIT["world"]))
+    a.label("sub_build_limit")
+    limit_label("57", "push        edi", "8B C3", "mov         eax,ebx")   # behind "Zurück"
     # the explanation of the selected row: empty here, page_update fills it in
     a.raw("BF " + _le(TUNE_Y_INFO["kart"]), "mov         edi,%s" % _imm(TUNE_Y_INFO["kart"]))
     a.raw("83 FB %02X" % PAGE_KART, "cmp         ebx,%s" % _imm(PAGE_KART))
@@ -1937,6 +2187,116 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("61", "popad")
     a.raw("C2 04 00", "ret         4")
 
+    # The pause page, after the game built it (esi = menu): a line with the class and the 60 FPS
+    # switch, in the tuning class with the preset the values match, and then the values.
+    # Stack: +0 class name, +20h "An"/"Aus", +40h preset name, +60h the line, +160h the eight
+    # values as words, +180h the values text.
+    a.label("pause_info")
+    a.raw("C7 86 44 01 00 00 FF FF FF FF", "mov         dword ptr [esi+00000144h],0FFFFFFFFh")   # displaced
+    a.raw("60", "pushad")
+    a.call("tune_base")
+    t_mov("ebx", GP_POINTER)
+    a.raw("81 EC 00 03 00 00", "sub         esp,300h")
+    a.raw("8B 4B 10", "mov         ecx,dword ptr [ebx+10h]")                     # the class
+    a.raw("81 C1 " + _le(TXT_CLASS0), "add         ecx,%s" % _imm(TXT_CLASS0))
+    a.raw("51", "push        ecx")
+    a.raw("8D 44 24 04", "lea         eax,[esp+4]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 08", "add         esp,8")
+    a.raw("8B 43 %02X" % PHYS_FLAG_OFFSET, "mov         eax,dword ptr [ebx+%s]" % _imm(PHYS_FLAG_OFFSET))
+    a.raw("C1 E8 08", "shr         eax,8")
+    a.raw("3D " + _le(PHYS_MAGIC), "cmp         eax,%s" % _imm(PHYS_MAGIC))
+    a.raw("0F 94 C0", "sete        al")
+    a.raw("0F B6 C0", "movzx       eax,al")
+    a.raw("05 " + _le(TXT_PHYS_OFF), "add         eax,%s" % _imm(TXT_PHYS_OFF))
+    a.raw("50", "push        eax")
+    a.raw("8D 44 24 24", "lea         eax,[esp+24h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 08", "add         esp,8")
+    a.raw("83 7B 10 05", "cmp         dword ptr [ebx+10h],5")
+    a.jcc_near("jne", "pause_info_plain")
+    a.call("tune_match")
+    a.raw("8D 54 24 40", "lea         edx,[esp+40h]")
+    a.call("tune_preset_name")
+    a.raw("8D 44 24 20", "lea         eax,[esp+20h]")                      # "An" / "Aus"
+    a.raw("50", "push        eax")
+    a.raw("8D 44 24 44", "lea         eax,[esp+44h]")                      # the preset
+    a.raw("50", "push        eax")
+    a.raw("8D 44 24 08", "lea         eax,[esp+8]")                        # the class
+    a.raw("50", "push        eax")
+    a.raw("68 " + _le(TXT_PAUSE_TUNING), "push        %s" % _imm(TXT_PAUSE_TUNING))
+    a.raw("8D 44 24 70", "lea         eax,[esp+70h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 14", "add         esp,14h")
+    a.raw("68 " + _le(PAUSE_Y_HEAD), "push        %s" % _imm(PAUSE_Y_HEAD))
+    a.raw("8D 44 24 64", "lea         eax,[esp+64h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.label("pause_info_words")
+    a.raw("8B 84 8B " + _le(TUNE_VALUES), "mov         eax,dword ptr [ebx+ecx*4+%08Xh]" % TUNE_VALUES)
+    a.raw("66 89 84 4C 60 01 00 00", "mov         word ptr [esp+ecx*2+00000160h],ax")
+    a.raw("41", "inc         ecx")
+    a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
+    a.jcc_short("jb", "pause_info_words")
+    a.raw("8B 8B " + _le(TUNE_VALUES + 4 * PRESET_VALUES),
+          "mov         ecx,dword ptr [ebx+%08Xh]" % (TUNE_VALUES + 4 * PRESET_VALUES))   # "Tempo"
+    a.raw("8D 94 24 60 01 00 00", "lea         edx,[esp+00000160h]")
+    a.raw("8D 84 24 80 01 00 00", "lea         eax,[esp+00000180h]")
+    a.raw("56", "push        esi")
+    a.raw("BE " + _le(TXT_PAUSE_VALUES), "mov         esi,%s" % _imm(TXT_PAUSE_VALUES))
+    a.call("values_text_id")
+    a.raw("5E", "pop         esi")
+    a.raw("8D BC 24 80 01 00 00", "lea         edi,[esp+00000180h]")
+    a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
+    a.raw("B8 " + _le(TXT_TOP_PAUSE[0]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[0]))
+    a.call("top_text")
+    a.raw("68 " + _le(PAUSE_Y_VALUES), "push        %s" % _imm(PAUSE_Y_VALUES))
+    a.raw("8D 84 24 84 01 00 00", "lea         eax,[esp+00000184h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.jmp_short("pause_info_done")
+    a.label("pause_info_plain")
+    a.raw("8D 44 24 20", "lea         eax,[esp+20h]")                      # "An" / "Aus"
+    a.raw("50", "push        eax")
+    a.raw("8D 44 24 04", "lea         eax,[esp+4]")                        # the class
+    a.raw("50", "push        eax")
+    a.raw("68 " + _le(TXT_PAUSE_PLAIN), "push        %s" % _imm(TXT_PAUSE_PLAIN))
+    a.raw("8D 44 24 6C", "lea         eax,[esp+6Ch]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 10", "add         esp,10h")
+    # the top speed of a stock class: the built-in preset of the same number holds its values
+    assert all(TUNE_PRESETS[n][1][0] == round(100 * f) for n, f in enumerate((0.9, 1.1, 1.3)))
+    a.raw("8B 4B 10", "mov         ecx,dword ptr [ebx+10h]")
+    a.raw("8D 04 C9", "lea         eax,[ecx+ecx*8]")
+    t_lea("edx", "tune_presets")
+    a.raw("8D 14 42", "lea         edx,[edx+eax*2]")
+    a.raw("B9 " + _le(len(TUNE_ROWS) - 1), "mov         ecx,%d" % (len(TUNE_ROWS) - 1))
+    a.label("pause_info_class_values")
+    a.raw("0F BF 04 4A", "movsx       eax,word ptr [edx+ecx*2]")
+    a.raw("89 84 8C 60 01 00 00", "mov         dword ptr [esp+ecx*4+00000160h],eax")
+    a.raw("49", "dec         ecx")
+    a.jcc_short("jns", "pause_info_class_values")
+    a.raw("8D 7C 24 60", "lea         edi,[esp+60h]")
+    a.raw("8D 94 24 60 01 00 00", "lea         edx,[esp+00000160h]")
+    a.raw("B8 " + _le(TXT_TOP_PAUSE[1]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[1]))
+    a.call("top_text")
+    a.raw("68 " + _le(PAUSE_Y_HEAD), "push        %s" % _imm(PAUSE_Y_HEAD))
+    a.raw("8D 44 24 64", "lea         eax,[esp+64h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.label("pause_info_done")
+    a.raw("81 C4 00 03 00 00", "add         esp,300h")
+    a.raw("61", "popad")
+    a.jmp(PAUSE_PAGE_DONE)
+
     # Was the action pressed in this frame? eax = its name. Returns "equal" if it was.
     a.label("tune_pressed")
     a.raw("50", "push        eax")
@@ -1949,81 +2309,346 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("F6 C4 40", "test        ah,40h")       # C3: the value is zero, not pressed
     a.raw("C3", "ret")
 
-    # Which warning do the values call for? eax = the pages asked for (TUNE_WARN_PAGE_BITS),
-    # ebx = GameParameters, ebp = tune_T. Returns eax = the text id of the first rule for one of
-    # these pages whose conditions all hold, or 0. Clobbers ecx, edx.
-    a.label("tune_warning")
+    # Is the set of values "am Limit"? ebx = GameParameters, ebp = tune_T. Returns eax = the text
+    # id of the line (TXT_LIMIT, TXT_LIMIT_LOW or TXT_LIMIT_OVER), ecx = risk, edx = challenge. Adds up the points of every channel from tune_limit_tab (one entry of
+    # len(LIMIT_CHANNELS) signed bytes per grid step of a row, the row's block found through
+    # tune_limit_rows: word last step, word offset), then the pairs; see LIMIT_POINTS. Clobbers ecx, edx.
+    NCH = len(LIMIT_CHANNELS)
+
+    def esp_ref(c):
+        return "[esp]" if c == 0 else "[esp+%s]" % _imm(4 * c)
+
+    def esp_modrm(reg, c):             # ModRM (+SIB, disp8) of [esp+4c] with the given reg field
+        return ("%02X 24" % (0x04 | reg << 3)) if c == 0 else ("%02X 24 %02X" % (0x44 | reg << 3, 4 * c))
+    a.label("tune_limit")
     a.raw("56", "push        esi")
     a.raw("57", "push        edi")
-    a.raw("50", "push        eax")
-    t_lea("esi", "tune_warnings")
-    a.label("tune_warning_rule")
-    a.raw("0F B6 0E", "movzx       ecx,byte ptr [esi]")              # number of conditions, 0 ends the table
-    a.raw("85 C9", "test        ecx,ecx")
-    a.jcc_short("je", "tune_warning_none")
-    a.raw("0F B7 7E 01", "movzx       edi,word ptr [esi+1]")         # the text; 0 once a condition fails
-    a.raw("0F B6 46 03", "movzx       eax,byte ptr [esi+3]")         # the pages it shows on
-    a.raw("84 04 24", "test        byte ptr [esp],al")
-    a.jcc_short("jne", "tune_warning_page")
-    a.raw("33 FF", "xor         edi,edi")                            # not on this page
-    a.label("tune_warning_page")
-    a.raw("83 C6 04", "add         esi,4")
-    a.label("tune_warning_cond")
-    a.raw("0F B6 16", "movzx       edx,byte ptr [esi]")              # value number, 80h: "<="
-    a.raw("0F B7 46 01", "movzx       eax,word ptr [esi+1]")         # the limit
-    a.raw("83 C6 03", "add         esi,3")
-    a.raw("F6 C2 80", "test        dl,80h")
-    a.jcc_short("jne", "tune_warning_le")
-    a.raw("39 84 93 " + _le(TUNE_VALUES), "cmp         dword ptr [ebx+edx*4+%08Xh],eax" % TUNE_VALUES)
-    a.jcc_short("jge", "tune_warning_ok")
-    a.raw("33 FF", "xor         edi,edi")
-    a.jmp_short("tune_warning_ok")
-    a.label("tune_warning_le")
-    a.raw("83 E2 7F", "and         edx,7Fh")
-    a.raw("39 84 93 " + _le(TUNE_VALUES), "cmp         dword ptr [ebx+edx*4+%08Xh],eax" % TUNE_VALUES)
-    a.jcc_short("jle", "tune_warning_ok")
-    a.raw("33 FF", "xor         edi,edi")
-    a.label("tune_warning_ok")
-    a.raw("49", "dec         ecx")
-    a.jcc_short("jne", "tune_warning_cond")
-    a.raw("85 FF", "test        edi,edi")
-    a.jcc_short("je", "tune_warning_rule")
-    a.raw("8B C7", "mov         eax,edi")
-    a.jmp_short("tune_warning_done")
-    a.label("tune_warning_none")
+    a.raw("83 EC %02X" % (4 * NCH), "sub         esp,%s" % _imm(4 * NCH))
     a.raw("33 C0", "xor         eax,eax")
-    a.label("tune_warning_done")
-    a.raw("59", "pop         ecx")
+    for c in range(NCH):
+        a.raw("89 " + esp_modrm(0, c), "mov         dword ptr %s,eax" % esp_ref(c))
+    a.raw("33 FF", "xor         edi,edi")                            # the row
+    a.label("tune_limit_row")
+    t_lea("esi", "tune_rows")
+    a.raw("0F BF 04 FE", "movsx       eax,word ptr [esi+edi*8]")     # minimum
+    a.raw("8B 8C BB " + _le(TUNE_VALUES), "mov         ecx,dword ptr [ebx+edi*4+%08Xh]" % TUNE_VALUES)
+    a.raw("2B C8", "sub         ecx,eax")
+    a.jcc_short("jge", "tune_limit_pos")
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.label("tune_limit_pos")
+    a.raw("8B C1", "mov         eax,ecx")
+    a.raw("99", "cdq")
+    a.raw("0F BF 4C FE 04", "movsx       ecx,word ptr [esi+edi*8+4]")   # step
+    a.raw("F7 F9", "idiv        eax,ecx")
+    t_lea("esi", "tune_limit_rows")
+    a.raw("0F B7 0C BE", "movzx       ecx,word ptr [esi+edi*4]")     # the row's last step
+    a.raw("3B C1", "cmp         eax,ecx")
+    a.jcc_short("jle", "tune_limit_step")
+    a.raw("8B C1", "mov         eax,ecx")
+    a.label("tune_limit_step")
+    a.raw("6B C0 %02X" % NCH, "imul        eax,eax,%s" % _imm(NCH))
+    a.raw("0F B7 4C BE 02", "movzx       ecx,word ptr [esi+edi*4+2]")   # the row's block
+    a.raw("03 C1", "add         eax,ecx")
+    t_lea("esi", "tune_limit_tab")
+    a.raw("03 F0", "add         esi,eax")
+    for c in range(NCH):
+        if c:
+            a.raw("0F BE 46 %02X" % c, "movsx       eax,byte ptr [esi+%s]" % _imm(c))
+        else:
+            a.raw("0F BE 06", "movsx       eax,byte ptr [esi]")
+        a.raw("01 " + esp_modrm(0, c), "add         dword ptr %s,eax" % esp_ref(c))
+    a.raw("47", "inc         edi")
+    a.raw("83 FF %02X" % len(TUNE_ROWS), "cmp         edi,%s" % _imm(len(TUNE_ROWS)))
+    a.jcc_short("jl", "tune_limit_row")
+    for n, (pa, pb, shift) in enumerate(LIMIT_PAIRS):
+        ca, cb = LIMIT_CHANNELS.index(pa), LIMIT_CHANNELS.index(pb)
+        a.raw("8B " + esp_modrm(0, ca), "mov         eax,dword ptr %s" % esp_ref(ca))
+        a.raw("85 C0", "test        eax,eax")
+        a.jcc_short("jle", "tune_limit_pair%d" % n)
+        a.raw("8B " + esp_modrm(1, cb), "mov         ecx,dword ptr %s" % esp_ref(cb))   # may be negative
+        a.raw("0F AF C1", "imul        eax,ecx")
+        a.raw("C1 F8 %02X" % shift, "sar         eax,%s" % _imm(shift))
+        a.raw("01 04 24", "add         dword ptr [esp],eax")
+        a.label("tune_limit_pair%d" % n)
+    assert LIMIT_CHANNELS[:2] == ("risk", "push")
+    assert all(-128 <= x <= 127 for x in (LIMIT_PUSH_MIN, LIMIT_RISK_HARD, LIMIT_RISK_MAX))
+    a.raw("8B 0C 24", "mov         ecx,dword ptr [esp]")
+    a.raw("8B 54 24 04", "mov         edx,dword ptr [esp+4]")
+    a.raw("B8 " + _le(TXT_LIMIT_OVER), "mov         eax,%s" % _imm(TXT_LIMIT_OVER))
+    a.raw("83 F9 %02X" % (LIMIT_RISK_MAX & 0xFF), "cmp         ecx,%s" % _imm(LIMIT_RISK_MAX))
+    a.jcc_short("jge", "tune_limit_done")
+    a.raw("B8 " + _le(TXT_LIMIT_LOW), "mov         eax,%s" % _imm(TXT_LIMIT_LOW))
+    a.raw("83 FA %02X" % (LIMIT_PUSH_MIN & 0xFF), "cmp         edx,%s" % _imm(LIMIT_PUSH_MIN))
+    a.jcc_short("jl", "tune_limit_done")
+    a.raw("B8 " + _le(TXT_LIMIT[0]), "mov         eax,%s" % _imm(TXT_LIMIT[0]))
+    a.raw("83 F9 %02X" % (LIMIT_RISK_HARD & 0xFF), "cmp         ecx,%s" % _imm(LIMIT_RISK_HARD))
+    a.jcc_short("jl", "tune_limit_done")
+    a.raw("B8 " + _le(TXT_LIMIT[1]), "mov         eax,%s" % _imm(TXT_LIMIT[1]))
+    a.label("tune_limit_done")
+    a.raw("83 C4 %02X" % (4 * NCH), "add         esp,%s" % _imm(4 * NCH))
     a.raw("5F", "pop         edi")
     a.raw("5E", "pop         esi")
     a.raw("C3", "ret")
 
-    # The warning's text for page eax, or an empty one. edx = buffer (100h bytes), ebp = tune_T.
-    # Clobbers eax, ecx, edx.
-    a.label("tune_warn_text")
+    # The "Am Limit" line's text (the same on every page) with the challenge and risk points
+    # (shown from 0 up). edx = buffer (100h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
+    a.label("tune_limit_text")
     a.raw("53", "push        ebx")
     a.raw("56", "push        esi")
     a.raw("8B F2", "mov         esi,edx")
     t_mov("ebx", GP_POINTER)
-    a.raw("8B C8", "mov         ecx,eax")
-    a.raw("B8 %s" % _le(TUNE_WARN_PAGE_BITS["tuning"]), "mov         eax,%d" % TUNE_WARN_PAGE_BITS["tuning"])
-    for key, page in (("kart", PAGE_KART), ("world", PAGE_WORLD), ("opp", PAGE_OPP)):
-        a.raw("83 F9 %02X" % page, "cmp         ecx,%s" % _imm(page))
-        a.jcc_short("jne", "tune_warn_text_%s" % key)
-        a.raw("B8 %s" % _le(TUNE_WARN_PAGE_BITS[key]), "mov         eax,%d" % TUNE_WARN_PAGE_BITS[key])
-        a.label("tune_warn_text_%s" % key)
-    a.call("tune_warning")
-    a.raw("C6 06 00", "mov         byte ptr [esi],0")
-    a.raw("85 C0", "test        eax,eax")
-    a.jcc_short("je", "tune_warn_text_done")
+    a.call("tune_limit")
+    a.raw("85 C9", "test        ecx,ecx")
+    a.jcc_short("jge", "tune_limit_text_risk")
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.label("tune_limit_text_risk")
+    a.raw("85 D2", "test        edx,edx")
+    a.jcc_short("jge", "tune_limit_text_push")
+    a.raw("33 D2", "xor         edx,edx")
+    a.label("tune_limit_text_push")
+    a.raw("51", "push        ecx")
+    a.raw("52", "push        edx")
     a.raw("50", "push        eax")
     a.raw("56", "push        esi")
     a.call("tune_printf")
-    a.raw("83 C4 08", "add         esp,8")
-    a.label("tune_warn_text_done")
+    a.raw("83 C4 10", "add         esp,10h")
+    a.raw("57", "push        edi")
+    a.raw("8B FE", "mov         edi,esi")
+    a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
+    a.raw("B8 " + _le(TXT_TOP), "mov         eax,%s" % _imm(TXT_TOP))
+    a.call("top_text")
+    a.raw("5F", "pop         edi")
     a.raw("5E", "pop         esi")
     a.raw("5B", "pop         ebx")
     a.raw("C3", "ret")
+
+    # Appends the top speed to a text: eax = text id of the format (one %d, km/h), edx = the
+    # values (dwords, as at GameParameters+TUNE_VALUES), edi = the text, ebx = GameParameters,
+    # ebp = tune_T. Clobbers eax, ecx, edx.
+    a.label("top_text")
+    a.raw("50", "push        eax")
+    a.call("tune_top")
+    a.raw("59", "pop         ecx")
+    a.raw("8B D7", "mov         edx,edi")
+    a.label("top_text_end")
+    a.raw("80 3A 00", "cmp         byte ptr [edx],0")
+    a.jcc_short("je", "top_text_print")
+    a.raw("42", "inc         edx")
+    a.jmp_short("top_text_end")
+    a.label("top_text_print")
+    a.raw("50", "push        eax")
+    a.raw("51", "push        ecx")
+    a.raw("52", "push        edx")
+    a.call("tune_printf")
+    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.raw("C3", "ret")
+
+    # Top speed in km/h of a set of values for player 1's character; the model and its numbers
+    # are at TOP_CHARS, top_speed() is the same in Python. edx = the values (dwords), ebx =
+    # GameParameters, ebp = tune_T. Returns eax. Clobbers ecx, edx.
+    # Locals: +4 Gewicht, +8 mass, +0Ch rpm per unit/s, +10h high and +14h low end of the
+    # bisection, +18h drive per torque, +1Ch largest drive, +20h speed limit of the downforce,
+    # +24h load above the chassis' limit at speed 0, +28h rubbing, +2Ch speed, +30h scratch.
+    def c_disp(name):
+        return tdisp("top_consts") + 4 * TOP_CONSTS.index(name) & 0xFFFFFFFF
+
+    def fc(op, name):                            # x87 op with a constant of top_consts
+        modrm = {"fld": ("D9", 0x85), "fmul": ("D8", 0x8D), "fadd": ("D8", 0x85), "fsub": ("D8", 0xA5),
+                 "fsubr": ("D8", 0xAD), "fdivr": ("D8", 0xBD), "fcom": ("D8", 0x95)}[op]
+        d = c_disp(name)
+        a.raw("%s %02X %s" % (modrm[0], modrm[1], _le(d)), "%-11s dword ptr [ebp+%08Xh]" % (op, d))
+
+    def fl(op, off):                             # x87 op with a local [esp+off]
+        modrm = {"fld": ("D9", 0x44), "fstp": ("D9", 0x5C), "fst": ("D9", 0x54), "fmul": ("D8", 0x4C),
+                 "fadd": ("D8", 0x44), "fdiv": ("D8", 0x74), "fcom": ("D8", 0x54)}[op]
+        a.raw("%s %02X 24 %02X" % (modrm[0], modrm[1], off), "%-11s dword ptr [esp+%s]" % (op, _imm(off)))
+
+    def fmin(kind, ref, label):                  # st0 = min(st0, operand)
+        (fc if kind == "c" else fl)("fcom", ref)
+        a.raw("DF E0", "fnstsw      ax")
+        a.raw("F6 C4 41", "test        ah,41h")
+        a.jcc_short("jne", label)                # not above it (or not a number): keep
+        a.raw("DD D8", "fstp        st(0)")
+        (fc if kind == "c" else fl)("fld", ref)
+        a.label(label)
+
+    chars = tdisp("top_chars")
+    a.label("tune_top")
+    a.raw("83 EC 34", "sub         esp,34h")
+    a.raw("DB 42 0C", "fild        dword ptr [edx+0Ch]")         # Gewicht
+    fc("fmul", "hundredth")
+    fl("fstp", 0x04)
+    a.raw("8B 4B 58", "mov         ecx,dword ptr [ebx+58h]")      # player 1's character
+    a.raw("83 F9 %02X" % (len(TOP_CHARS) - 1), "cmp         ecx,%d" % (len(TOP_CHARS) - 1))
+    a.jcc_short("jbe", "tune_top_char")
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.label("tune_top_char")
+    a.raw("D9 84 CD " + _le(chars), "fld         dword ptr [ebp+ecx*8+%08Xh]" % chars)   # its mass
+    fl("fmul", 0x04)
+    fl("fstp", 0x08)
+    a.raw("DB 02", "fild        dword ptr [edx]")             # Übersetzung
+    fc("fmul", "hundredth")
+    fl("fstp", 0x30)
+    a.raw("D9 84 CD " + _le(chars + 4), "fld         dword ptr [ebp+ecx*8+%08Xh]" % (chars + 4))   # its k
+    fl("fdiv", 0x30)
+    fl("fst", 0x0C)
+    fc("fdivr", "rpm_max")
+    fl("fstp", 0x10)
+    a.raw("D9 EE", "fldz")
+    fl("fstp", 0x14)
+    a.raw("DB 42 04", "fild        dword ptr [edx+4]")           # Motorkraft
+    fc("fmul", "hundredth")
+    a.raw("D9 C0", "fld         st(0)")
+    a.raw("D8 8C CD " + _le(chars + 4), "fmul        dword ptr [ebp+ecx*8+%08Xh]" % (chars + 4))
+    fc("fmul", "drive")
+    fl("fstp", 0x18)
+    fc("fmul", "traction")
+    fmin("c", "drive_max", "tune_top_drive_max")
+    fl("fstp", 0x1C)
+    fc("fld", "no_limit")
+    a.raw("83 7A 18 00", "cmp         dword ptr [edx+18h],0")      # Anpressdruck
+    a.jcc_short("jle", "tune_top_vcl")
+    a.raw("DD D8", "fstp        st(0)")
+    a.raw("DB 42 0C", "fild        dword ptr [edx+0Ch]")
+    a.raw("DA 72 18", "fidiv       dword ptr [edx+18h]")
+    a.raw("D9 FA", "fsqrt")
+    fc("fmul", "downforce_speed")
+    a.label("tune_top_vcl")
+    fl("fstp", 0x20)
+    a.raw("DB 42 1C", "fild        dword ptr [edx+1Ch]")         # Schwerkraft
+    fc("fmul", "hundredth")
+    fl("fst", 0x30)
+    fc("fmul", "load_g")
+    fc("fsub", "cap")
+    fc("fmul", "gravity")
+    fl("fmul", 0x08)
+    fl("fstp", 0x24)
+    fl("fld", 0x30)
+    fl("fmul", 0x08)
+    fc("fmul", "rub_g")
+    fc("fld", "rub_light")
+    fl("fdiv", 0x04)
+    a.raw("DE C1", "faddp       st(1),st")
+    fc("fadd", "rub")
+    fl("fstp", 0x28)
+    a.raw("DB 42 18", "fild        dword ptr [edx+18h]")
+    fc("fmul", "downforce")
+    fl("fstp", 0x30)
+    a.raw("B9 " + _le(TOP_STEPS), "mov         ecx,%s" % _imm(TOP_STEPS))
+    a.label("tune_top_step")
+    fl("fld", 0x14)
+    fl("fadd", 0x10)
+    fc("fmul", "half")
+    fl("fst", 0x2C)
+    fl("fmul", 0x0C)                                             # engine speed
+    fc("fcom", "rpm_mid")
+    a.raw("DF E0", "fnstsw      ax")
+    a.raw("F6 C4 01", "test        ah,1")
+    a.jcc_short("je", "tune_top_high")
+    fc("fmul", "torque_slope1")
+    fc("fsubr", "torque_at0")
+    a.jmp_short("tune_top_drive")
+    a.label("tune_top_high")
+    fc("fmul", "torque_slope2")
+    fc("fsubr", "torque_at0_2")
+    a.label("tune_top_drive")
+    fl("fmul", 0x18)
+    fmin("l", 0x1C, "tune_top_drive_cap")                        # st0 = drive
+    fl("fld", 0x2C)
+    fmin("l", 0x20, "tune_top_vd")
+    a.raw("D8 C8", "fmul        st,st(0)")
+    fl("fmul", 0x30)
+    fl("fadd", 0x24)                                             # load above the limit
+    a.raw("D9 E4", "ftst")
+    a.raw("DF E0", "fnstsw      ax")
+    a.raw("F6 C4 41", "test        ah,41h")
+    a.jcc_short("je", "tune_top_rub")
+    a.raw("DD D8", "fstp        st(0)")
+    a.raw("D9 EE", "fldz")
+    a.jmp_short("tune_top_air")
+    a.label("tune_top_rub")
+    fc("fmul", "rub_load")
+    fl("fadd", 0x28)
+    a.label("tune_top_air")
+    fl("fld", 0x2C)
+    a.raw("D8 C8", "fmul        st,st(0)")
+    fc("fmul", "air")
+    a.raw("DE C1", "faddp       st(1),st")                       # st0 = resistance, st1 = drive
+    a.raw("DE D9", "fcompp")
+    a.raw("DF E0", "fnstsw      ax")
+    a.raw("8B 54 24 2C", "mov         edx,dword ptr [esp+2Ch]")
+    a.raw("F6 C4 01", "test        ah,1")
+    a.jcc_short("je", "tune_top_slower")
+    a.raw("89 54 24 14", "mov         dword ptr [esp+14h],edx")   # faster than this speed
+    a.jmp_short("tune_top_next")
+    a.label("tune_top_slower")
+    a.raw("89 54 24 10", "mov         dword ptr [esp+10h],edx")
+    a.label("tune_top_next")
+    a.raw("49", "dec         ecx")
+    a.jcc_near("jne", "tune_top_step")
+    fl("fld", 0x14)
+    fc("fmul", "kmh")
+    a.raw("DB 5C 24 30", "fistp       dword ptr [esp+30h]")
+    a.raw("8B 44 24 30", "mov         eax,dword ptr [esp+30h]")
+    a.raw("83 C4 34", "add         esp,34h")
+    a.raw("C3", "ret")
+
+    # The speed in the race, below "Runde" / "Position" (see HUD_SPEED_HOOK); esi = the Hud.
+    # Stack: +0 scratch, +4 the y, +8 the text (100h bytes); the caller's frame starts at +128h.
+    frame = 0x108 + 0x20
+    a.label("hud_speed")
+    a.raw("60", "pushad")
+    a.call("tune_base")
+    a.raw("81 EC 08 01 00 00", "sub         esp,108h")
+    t_mov("eax", CAR_MANAGER)
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_near("je", "hud_speed_done")
+    a.raw("8B 4E 04", "mov         ecx,dword ptr [esi+4]")
+    a.raw("8B 50 10", "mov         edx,dword ptr [eax+10h]")
+    a.raw("8B 40 14", "mov         eax,dword ptr [eax+14h]")
+    a.raw("2B C2", "sub         eax,edx")
+    a.raw("C1 F8 02", "sar         eax,2")
+    a.raw("3B C8", "cmp         ecx,eax")
+    a.jcc_near("jae", "hud_speed_done")
+    a.raw("8B 14 8A", "mov         edx,dword ptr [edx+ecx*4]")
+    a.raw("85 D2", "test        edx,edx")
+    a.jcc_near("je", "hud_speed_done")
+    for k in range(3):
+        off = CAR_VELOCITY + 4 * k
+        a.raw("D9 82 " + _le(off), "fld         dword ptr [edx+%08Xh]" % off)
+        a.raw("D8 C8", "fmul        st,st(0)")
+        if k:
+            a.raw("DE C1", "faddp       st(1),st")
+    a.raw("D9 FA", "fsqrt")
+    fc("fmul", "kmh")
+    a.raw("DB 1C 24", "fistp       dword ptr [esp]")
+    a.raw("FF 34 24", "push        dword ptr [esp]")
+    a.raw("68 " + _le(TXT_SPEED), "push        %s" % _imm(TXT_SPEED))
+    a.raw("8D 44 24 10", "lea         eax,[esp+10h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.call(HUD_GAME_MODE)
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.raw("83 78 1C 00", "cmp         dword ptr [eax+1Ch],0")
+    a.raw("0F 95 C1", "setne       cl")
+    a.raw("D9 84 24 " + _le(frame + 0x10), "fld         dword ptr [esp+%08Xh]" % (frame + 0x10))   # the y scale
+    ydisp = tdisp("hud_speed_y")
+    a.raw("D8 8C 8D " + _le(ydisp), "fmul        dword ptr [ebp+ecx*4+%08Xh]" % ydisp)
+    a.raw("D9 5C 24 04", "fstp        dword ptr [esp+4]")
+    a.raw("FF 74 24 04", "push        dword ptr [esp+4]")
+    a.raw("FF B4 24 " + _le(frame + 0x20 + 4), "push        dword ptr [esp+%08Xh]" % (frame + 0x20 + 4))   # the x of "Runde"
+    a.raw("8D 44 24 10", "lea         eax,[esp+10h]")
+    a.raw("50", "push        eax")
+    a.call(HUD_FONT)
+    a.raw("8B C8", "mov         ecx,eax")
+    a.call(HUD_DRAW_TEXT)
+    a.label("hud_speed_done")
+    a.raw("81 C4 08 01 00 00", "add         esp,108h")
+    a.raw("61", "popad")
+    a.raw("57", "push        edi")                       # displaced
+    a.raw("8D 4C 24 28", "lea         ecx,[esp+28h]")
+    a.jmp(HUD_SPEED_BACK)
 
     # Which row does an item of the current page show? eax = item, esi = menu.
     # Returns eax = the row (0 "Vorlage", 1..9 the values) or -1. Clobbers ecx, edx.
@@ -2084,21 +2709,21 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("47", "inc         edi")
     a.jmp_short("tune_refresh_next")
     a.label("tune_refresh_done")
-    assert TUNE_WARN_ITEM["tuning"] == TUNE_WARN_ITEM["kart"] and TUNE_WARN_ITEM["world"] == TUNE_WARN_ITEM["opp"]
-    a.raw("B8 " + _le(TUNE_WARN_ITEM["tuning"]), "mov         eax,%s" % _imm(TUNE_WARN_ITEM["tuning"]))   # the warning label
+    assert TUNE_LIMIT_ITEM["tuning"] == TUNE_LIMIT_ITEM["kart"] and TUNE_LIMIT_ITEM["world"] == TUNE_LIMIT_ITEM["opp"]
+    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["tuning"]), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["tuning"]))   # the "Am Limit" label
     a.raw("8B 8E 40 01 00 00", "mov         ecx,dword ptr [esi+00000140h]")
     a.raw("83 F9 %02X" % PAGE_WORLD, "cmp         ecx,%s" % _imm(PAGE_WORLD))
     a.jcc_short("je", "tune_refresh_world")
     a.raw("83 F9 %02X" % PAGE_OPP, "cmp         ecx,%s" % _imm(PAGE_OPP))
-    a.jcc_short("jne", "tune_refresh_warn")
+    a.jcc_short("jne", "tune_refresh_limit")
     a.label("tune_refresh_world")
-    a.raw("B8 " + _le(TUNE_WARN_ITEM["world"]), "mov         eax,%s" % _imm(TUNE_WARN_ITEM["world"]))
-    a.label("tune_refresh_warn")
+    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["world"]), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["world"]))
+    a.label("tune_refresh_limit")
     a.raw("50", "push        eax")
     a.raw("81 EC 00 01 00 00", "sub         esp,100h")
     a.raw("8B D4", "mov         edx,esp")
     a.raw("8B 86 40 01 00 00", "mov         eax,dword ptr [esi+00000140h]")
-    a.call("tune_warn_text")
+    a.call("tune_limit_text")
     a.raw("8B 84 24 00 01 00 00", "mov         eax,dword ptr [esp+00000100h]")
     a.raw("8B D4", "mov         edx,esp")
     a.call("item_setstr")
@@ -2134,11 +2759,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 EC 1C", "sub         esp,1Ch")
     get_text("51", "push        ecx")
     a.raw("8B D0", "mov         edx,eax")
-    assert TUNE_WARN_ITEM["world"] == TUNE_WARN_ITEM["opp"]
-    a.raw("B8 " + _le(TUNE_WARN_ITEM["kart"] + 1), "mov         eax,%s" % _imm(TUNE_WARN_ITEM["kart"] + 1))
+    assert TUNE_LIMIT_ITEM["world"] == TUNE_LIMIT_ITEM["opp"]
+    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["kart"] + 1), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["kart"] + 1))
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_KART, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_KART))
     a.jcc_short("je", "tune_info_item")
-    a.raw("B8 " + _le(TUNE_WARN_ITEM["world"] + 1), "mov         eax,%s" % _imm(TUNE_WARN_ITEM["world"] + 1))
+    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["world"] + 1), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["world"] + 1))
     a.label("tune_info_item")
     a.call("item_setstr")
     a.raw("8B CC", "mov         ecx,esp")
@@ -2993,22 +3618,29 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.label("downforce_speed")
     a.data(struct.pack("<2f", DOWNFORCE_SPEED, DOWNFORCE_SPEED_AIR),
            "float %g, %g: where the downforce of the tuning class stops growing, on the ground and in the air" % (DOWNFORCE_SPEED, DOWNFORCE_SPEED_AIR))
+    a.label("top_consts")
+    a.data(struct.pack("<%df" % len(TOP_CONSTS), *(top_const(n) for n in TOP_CONSTS)),
+           "top speed: " + ", ".join("%s %g" % (n, top_const(n)) for n in TOP_CONSTS))
+    a.label("hud_speed_y")
+    a.data(struct.pack("<2f", *HUD_SPEED_Y), "float %g, %g: y of the speed in the race without / with the position" % HUD_SPEED_Y)
+    a.label("top_chars")
+    a.data(b"".join(struct.pack("<2f", m, TOP_K * gd) for m, gd in TOP_CHARS),
+           "top speed: mass and rpm per unit/s in top gear of the seven characters")
     a.label("tune_rows")
     a.data(b"".join(struct.pack("<4h", *row) for row in TUNE_ROWS), "tuning rows: minimum, maximum, step, default")
     a.label("tune_presets")
     a.data(b"".join(struct.pack("<%dh" % len(TUNE_ROWS), *vals) for _, vals in TUNE_PRESETS),
            "tuning presets: the nine values of " + ", ".join(name for name, _ in TUNE_PRESETS))
-    a.label("tune_warnings")
-    blob = b""
-    for n, (_, conds) in enumerate(TUNE_WARNINGS):
-        pages = 0                                     # the detail pages that have one of its values
-        for value, _, _ in conds:
-            pages |= TUNE_WARN_PAGE_BITS["kart" if value < KART_ROWS else "world" if value < PRESET_VALUES else "opp"]
-        blob += struct.pack("<BHB", len(conds), TXT_TUNE_WARN[n], pages)
-        for value, op, limit in conds:
-            assert op in (">=", "<=") and 0 <= value < len(TUNE_ROWS)
-            blob += struct.pack("<BH", value | (0x80 if op == "<=" else 0), limit)
-    a.data(blob + b"\0", "tuning warnings: conditions, text, pages, then (value | 80h for <=, limit) per condition")
+    tab = limit_table()
+    a.label("tune_limit_rows")
+    rows, off = b"", 0
+    for steps in tab:
+        rows += struct.pack("<2H", len(steps) - 1, off)
+        off += len(steps) * len(LIMIT_CHANNELS)
+    a.data(rows, "Am Limit: per row the last grid step and the offset of its block in tune_limit_tab")
+    a.label("tune_limit_tab")
+    a.data(b"".join(struct.pack("<%db" % len(LIMIT_CHANNELS), *pts) for steps in tab for pts in steps),
+           "Am Limit: points of %s per grid step of every row" % ", ".join(LIMIT_CHANNELS))
     a.label("tune_info_texts")
     a.data(struct.pack("<%dH" % len(TXT_INFO), *TXT_INFO), "text ids of the explanations of rows 1..9")
     a.label("tune_apply_table")
@@ -3131,6 +3763,15 @@ def site_patches(labels):
     call(0x0041FB88, "8B 86 48 01 00 00", "options_select", "options menu: select on the new items")
     call(0x0041FD71, "8B 86 48 01 00 00", "options_left", "options menu: left flips the switch")
     call(0x0041FE2D, "8B B6 48 01 00 00", "options_right", "options menu: right flips the switch")
+
+    # pause page: class, switch, tuning preset and values above the stock items, which move down
+    jump(0x004142FC, "C7 86 44 01 00 00 FF FF FF FF", "pause_info", "pause page: class, switch, tuning values")
+    jump(HUD_SPEED_HOOK, "57 8D 4C 24 28", "hud_speed", "race: the speed below lap and position")
+    for row, y in enumerate(PAUSE_Y_STOCK[:5]):
+        slot = "C7 44 24 %02X " % (0x30 + 4 * row)
+        data(0x00413E92 + 8 * row, slot + _le(y), slot + _le(y + PAUSE_Y_SHIFT), "pause page: item %d moves down" % row)
+    for va, y in ((0x00413FE1, PAUSE_Y_STOCK[5]), (0x0041405B, PAUSE_Y_STOCK[5]), (0x004140D2, PAUSE_Y_STOCK[6])):
+        data(va, "68 " + _le(y), "68 " + _le(y + PAUSE_Y_SHIFT), "pause page: button at %d moves down" % y)
 
     # phantom karts
     # The stock game compares the id in a phantom file with its own and skips the file

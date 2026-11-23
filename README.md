@@ -100,7 +100,8 @@ all in 250 cc. → [200 cc, 250 cc and Tuning](docs/engine-classes.md)
 **Tuning class.** A sixth class, unlocked by winning Meisterschaft 2 in 250 cc, whose values you
 set in the game: gearing, engine power, grip, weight, brakes, steering and downforce of the
 kart, the gravity, and the pace of the computer karts. Built-in presets (the five classes and
-eleven more) and eight slots for your own; extreme values are allowed.
+fourteen more) and eight slots for your own; extreme values are allowed, and a line shows how
+close they are to the limit of what still races well, and the top speed they give.
 → [Tuning class](docs/tuning-class.md)
 
 ![tuning page](screenshots/08-tuning-page.png)
@@ -122,7 +123,7 @@ patch version.
 | Document | Content |
 | --- | --- |
 | [200 cc, 250 cc and Tuning](docs/engine-classes.md) | How the classes are unlocked, gearing and pull, measured speeds, the computer karts |
-| [Tuning class](docs/tuning-class.md) | The tuning pages, every value, warnings, presets, own presets, measurements, the downforce rules |
+| [Tuning class](docs/tuning-class.md) | The tuning pages, every value, the *Am Limit* line, top speed, presets, own presets, the pause page, measurements, the downforce rules |
 | [60 FPS physics switch](docs/60fps-physics.md) | Why the game drives differently at 200 FPS, what the switch changes, the computer karts' power-ups |
 | [Phantom karts](docs/phantom-karts.md) | Own ghosts, the best run as phantom, version and name in the files |
 | [Building it yourself](docs/building.md) | The patcher, building the exe from your own, other versions of the exe |

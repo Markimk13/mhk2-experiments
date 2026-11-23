@@ -27,6 +27,19 @@ versions stay.
   that counts the changes since the last release.
 - The release zips contain `tools\patch_200cc.py`, so the commands work straight from the
   game folder.
+- Tuning class: the *Am Limit* line replaces the three yellow warnings. Every value gives
+  challenge and risk points; the line says whether the values are extreme but still race well
+  (green), close to the limit (bright green), too risky (orange) or neither (grey). The risk
+  points are a fit to about 1250 races of the computer karts.
+- Tuning class: a *Top speed* line on every tuning page and on the pause page, in km/h, for the
+  character chosen last (fitted to about 420 runs on an endless straight; most sets within 5 %).
+- Presets: *Rakete*, *Formel 1*, *Rallye*, *Glatteis*, *Schwergewicht* and *Wahnsinn* have new
+  values that race better; *Dragster* is gone; new are *Bremsversagen*, *Federleicht*,
+  *Hetzjagd* and *Mondrakete*. Own slots stay, and a saved "last preset" is moved along.
+- The pause page shows what the race runs with: class, the 60 FPS switch, in the tuning class
+  the preset and all values, and the top speed.
+- The race shows the kart's speed in km/h below lap and position (for each player in the
+  two-player game).
 
 ## 1.8 – first public release
 

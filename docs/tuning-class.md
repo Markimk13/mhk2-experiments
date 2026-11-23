@@ -35,51 +35,120 @@ Races on the first track (mean speed of the six computer karts, units/s, 250 cc 
 The default is 100 %, like the other defaults the 250 cc kart. *Tempo* is part of the presets
 like every other value: the class copies have the pace of their class, an own slot keeps it.
 
-**Warnings.** Some combinations do not break anything but leave the computer karts stuck for
-long stretches of a race. While the values make such a combination, a yellow line on the
-tuning page and on the pages that hold one of its values says which one (all three are
-about kart values, so they show on *Kart*, not on *Welt* or *Gegner*):
+**Am Limit.** With nine values there are far too many combinations to try by hand, and many
+extreme ones hardly make a race: the computer karts stand stuck, are reset again and again or
+spend the race on their tails. A line on the tuning page and on each of its pages helps to
+find the extreme ones that still work. Every value gives **Anspruch** (challenge) and **Risiko**
+(risk) points, and the line shows both:
 
-| Warning | When | Computer karts stuck (six karts, 45 s, added up) |
-| --- | --- | --- |
-| *Hohes Gewicht und viel Motorkraft* | Gewicht 400 % and Motorkraft 400 % or more | 17 – 31 s |
-| *Kein Anpressdruck bei langer Übersetzung* | Anpressdruck 0 % and Übersetzung 3.00 or more | 24 – 26 s |
-| *Volle Übersetzung und Motorkraft bei wenig Anpressdruck* | Übersetzung 4.00, Motorkraft 1000 % and Anpressdruck 100 % or less | 8 – 28 s (*Dragster*: 14 – 27 s) |
+| Line | Meaning |
+| --- | --- |
+| *Am Limit: extrem, aber noch fahrbar (Anspruch …, Risiko …)* (green) | Anspruch 24 or more, Risiko below 12: the values make the race clearly harder (faster, less grip, less steering or brakes, unusual gravity, quicker opponents), and races with such values went about as well as with the defaults |
+| *Hart am Limit: gerade noch fahrbar (…)* (bright green) | Anspruch 24 or more, Risiko 12 – 23: the same, close to where races stop working |
+| *Anspruch … (Am Limit ab 24), Risiko …* (grey) | near the defaults, or only easier or slower (the defaults: 0 and 0) |
+| *Anspruch …, Risiko …: zu riskant (fahrbar bis 23)* (orange) | Risiko 24 or more: past what works |
 
-![warning](../screenshots/12-tuning-warning.png)
+![Am Limit](../screenshots/12-tuning-limit.png)
 
-With the defaults they stand still for 4 – 6 s in such a race. The warning is only a hint;
-the values can be raced anyway. *Dragster* is the only built-in preset that gets one.
+The line follows every step of a value, so one can push a value until the line turns from
+*Am Limit* to *Hart am Limit* and then *zu riskant*. Points below 0 (values that make the race
+easier) are shown as 0. How it is computed: every value gives
+challenge points (set by hand) and risk points, plus three products for values that act
+together (opponents' tempo and engine power, engine power and weight against downforce,
+gearing against downforce). The risk points are a fit to about 1250 races of 45 s with six
+computer karts on all eight tracks (60 FPS): how long they stood still, how often they were
+reset, and how much of the race they spent with no wheel on the ground, compared with the default
+values on the same track. In those races the computer karts did:
+
+| Line | Races | Mean badness | Clearly bad races |
+| --- | --- | --- | --- |
+| *Am Limit* | 215 | 0.26 | 7 % |
+| *Hart am Limit* | 304 | 0.42 | 15 % |
+| *zu riskant* | 367 | 1.50 | 62 % |
+| the defaults | 18 | 0.01 | 0 % |
+
+(Badness 0 is a race like with the defaults, 1 one where they clearly got stuck, reset or
+airborne.) One value alone, the others at their defaults, shows the line at Übersetzung 2.60 –
+2.70 (*Am Limit*) and 2.75 – 3.50 (*Hart*), Motorkraft 575 % (*Hart*), Haftung 50 % (*Am
+Limit*) and 25 % (*Hart*), Bremsen 25 % (*Am Limit*), Lenkung 50 % (*Hart*), Schwerkraft 300 %
+(*Am Limit*) and 25 % (*Hart*), Gegner 175 – 200 % (*Hart*). The new presets were also raced at
+200 FPS with *60-FPS-Fahrphysik* on and did as well. Single races scatter a lot from track to
+track, so the line tells what works on average; it judges the computer karts, not how the kart
+feels to you. Up to 1.8 the class had yellow warnings for three bad combinations instead.
+
+| Preset | Anspruch | Risiko | Line |
+| --- | --- | --- | --- |
+| Rakete | 24 | 17 | Hart am Limit |
+| Formel 1 | 24 | 16 | Hart am Limit |
+| Rallye | 50 | 8 | Am Limit |
+| Glatteis | 41 | 10 | Am Limit |
+| Bremsversagen | 55 | 4 | Am Limit |
+| Schwergewicht | 12 | 23 | (grey) |
+| Federleicht | 56 | 10 | Am Limit |
+| Hetzjagd | 39 | 21 | Hart am Limit |
+| Wahnsinn | 145 | 23 | Hart am Limit |
+| Mondfahrt | 32 | 15 | Hart am Limit |
+| Mondrakete | 44 | 14 | Hart am Limit |
+| Jupiter | 21 | 3 | (grey) |
+
+The class copies, Federgewicht and Schnecke have 0 and 0.
+
+**Top speed.** Below the *Am Limit* line every tuning page shows the top speed the values give,
+in km/h (*Top speed: ca. 220 km/h* for the defaults; one unit/s of the game is 3.6 km/h). It is
+computed for the character chosen last, as they differ in weight and gearing: with the
+defaults moorhuhn and lesshuhn 220, moorfrosch 203, pumpkin 211, snowman 218, turtle 193,
+hank 214 km/h (their names in the game's `karts.txt`). The formula comes from about 420 runs on
+an endless straight (the kart is put back by 39 units whenever it reaches the end of the start
+straight of *Ägypten*) with values spread over all rows and all seven characters: half of them
+are within 1.8 % of it, nine in ten within 7 %, every preset within 2.5 %. It balances the
+engine's pull (torque curve, gearing, *Motorkraft*) against the air and, the bigger part, the
+chassis: from about 61 units/s (220 km/h) on, the downforce and the weight press the kart down
+harder than its wheels can carry, and the chassis rubs on the road. So *Übersetzung* alone soon
+stops adding speed (measured: 2.00 gives 223, 3.00 gives 230 km/h; the line says 226 for both);
+more *Motorkraft*, more *Gewicht*, less *Anpressdruck* or less *Schwerkraft* push that wall
+further out. *Haftung*, *Bremsen* and *Lenkung* make no difference on a straight. The number is
+for 60 FPS physics (the switch on, or the game at 60 FPS) and for flat ground without power-ups;
+the siren and the power can go beyond it.
 
 The row *Vorlage* copies a ready-made set of values into all rows: ← / → (or its
 arrows) steps through the presets below, and from there each row can be changed further. The
 row shows the name of the preset the values match (the one copied last, if two match), or
 *Ungespeichert* once they match none; then ← / → continue from the preset copied last.
 
-| Preset | Übers. | Motor | Haft. | Gew. | Brems. | Lenk. | Anpr. | Schwer. | Tempo | Idea |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 50 cc | 0.90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | −25 | the class |
-| 100 cc | 1.10 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | the class |
-| 150 cc | 1.30 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | the class |
-| 200 cc | 1.47 | 150 | 100 | 100 | 100 | 100 | 100 | 100 | 50 | the class (its gearing is 1.468) |
-| 250 cc | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | the class (1.545); the defaults |
-| Rakete | 2.50 | 500 | 200 | 100 | 200 | 100 | 100 | 100 | 100 | much faster, grip and brakes to match |
-| Formel 1 | 2.00 | 600 | 300 | 100 | 300 | 100 | 300 | 100 | 100 | grip, downforce and brakes for the corners |
-| Rallye | 1.55 | 300 | 75 | 100 | 100 | 150 | 50 | 100 | 100 | strong engine on little grip, quick steering |
-| Glatteis | 1.55 | 200 | 50 | 100 | 100 | 100 | 50 | 100 | 100 | everything slides |
-| Schwergewicht | 1.55 | 200 | 100 | 300 | 200 | 100 | 100 | 100 | 100 | three times the weight |
-| Federgewicht | 1.55 | 100 | 100 | 50 | 100 | 100 | 100 | 100 | 100 | half the weight, half the engine |
-| Dragster | 4.00 | 1000 | 200 | 150 | 100 | 50 | 50 | 100 | 100 | straight-line monster with half the steering |
-| Schnecke | 0.50 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | top speed 20, for learning a track |
-| Wahnsinn | 4.00 | 1000 | 400 | 50 | 400 | 200 | 800 | 100 | 100 | everything at the limit that still works |
-| Mondfahrt | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 25 | 100 | 250 cc on a quarter of the gravity: long jumps |
-| Jupiter | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 250 | 100 | 250 cc on Jupiter (2.5 times the gravity) |
+| Preset | Übers. | Motor | Haft. | Gew. | Brems. | Lenk. | Anpr. | Schwer. | Tempo | Top speed | Idea |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50 cc | 0.90 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | −25 | 130 | the class |
+| 100 cc | 1.10 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 156 | the class |
+| 150 cc | 1.30 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 180 | the class |
+| 200 cc | 1.47 | 150 | 100 | 100 | 100 | 100 | 100 | 100 | 50 | 206 | the class (its gearing is 1.468) |
+| 250 cc | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 220 | the class (1.545); the defaults |
+| Rakete | 3.45 | 325 | 250 | 100 | 400 | 200 | 250 | 100 | 100 | 325 | much faster, grip, brakes and steering to match |
+| Formel 1 | 3.60 | 300 | 200 | 100 | 400 | 200 | 350 | 100 | 100 | 318 | long gearing held down by downforce, big brakes |
+| Rallye | 1.80 | 325 | 50 | 75 | 100 | 125 | 100 | 100 | 100 | 196 | strong, light engine on half the grip, quick steering |
+| Glatteis | 1.55 | 200 | 50 | 100 | 75 | 125 | 75 | 100 | 100 | 220 | everything slides |
+| Bremsversagen | 2.65 | 250 | 100 | 100 | 25 | 100 | 325 | 100 | 100 | 223 | fast, and the brakes are nearly gone: slow down early |
+| Schwergewicht | 1.55 | 250 | 100 | 250 | 250 | 100 | 200 | 100 | 100 | 222 | two and a half times the weight |
+| Federgewicht | 1.55 | 100 | 100 | 50 | 100 | 100 | 100 | 100 | 100 | 160 | half the weight, half the engine |
+| Federleicht | 2.90 | 325 | 175 | 25 | 100 | 100 | 175 | 150 | 100 | 244 | a quarter of the weight on a fast kart, more gravity to keep it down |
+| Hetzjagd | 1.75 | 275 | 150 | 100 | 100 | 100 | 100 | 100 | 200 | 226 | a bit faster than 250 cc, and the computer karts are stronger than you |
+| Schnecke | 0.50 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 74 | top speed 20, for learning a track |
+| Wahnsinn | 3.15 | 350 | 50 | 25 | 25 | 100 | 275 | 300 | 100 | 277 | everything extreme at once: long gearing, little grip, a feather, no brakes, three times the gravity |
+| Mondfahrt | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 25 | 100 | 220 | 250 cc on a quarter of the gravity: long jumps |
+| Mondrakete | 3.60 | 325 | 175 | 100 | 100 | 200 | 350 | 50 | 100 | 336 | a very fast kart on half the gravity, held down by downforce |
+| Jupiter | 1.55 | 200 | 100 | 100 | 100 | 100 | 100 | 250 | 100 | 188 | 250 cc on Jupiter (2.5 times the gravity) |
 
 The class copies drive like the classes, up to the third decimal of the gearing (the copies of
 200 cc and 250 cc are 0.07 and 0.18 units/s faster at the top). Their computer karts follow
 the 150 cc rules with *Tempo*, so the copies of 50 cc (−25 %) and 100 cc (0 %) only come
 close to the real classes' opponents. The other presets were tried
-by the computer karts only.
+by the computer karts only. Version 1.9 changed *Rakete*,
+*Formel 1*, *Rallye*, *Glatteis*, *Schwergewicht* and *Wahnsinn*: their old values left the
+computer karts stuck, reset or on their tails in many races (badness 0.4 to 1.4, see *Am Limit*);
+the new ones were searched with the *Am Limit* computation and raced on all eight tracks (14
+races each: badness 0.15 to 0.7, as fast or faster). It dropped *Dragster* (no variant with its
+idea worked: badness 1.6 to 3) and added *Bremsversagen*, *Federleicht*, *Hetzjagd* and
+*Mondrakete*, found the same way (14 races each: badness 0.08 to 0.57).
+
 
 **Own presets.** *Eigene Vorlagen* on the tuning page opens a page with eight slots for your
 own sets of values:
@@ -99,6 +168,14 @@ own sets of values:
 - The filled slots also come up in the *Vorlage* row of the tuning page, after the built-in
   presets, under their names.
 - The slots are kept in `settings.dat`.
+
+**In the pause menu.** While racing, the pause page (Esc) shows what the race runs with: the
+class and the *60-FPS-Fahrphysik* switch, in the tuning class also the preset the values match
+(the name of an own slot, or *Ungespeichert*) and all nine values, and the top speed of the kart
+in the race (see *Top speed* above; in the other classes for the class). The page's own items sit a
+little lower to make room.
+
+![pause page in the tuning class](../screenshots/15-pause-info.png)
 
 | Row | What it changes | Range | Default |
 | --- | --- | --- | --- |
@@ -154,7 +231,7 @@ at 60 FPS (speed in game units per second, the other rows at their defaults):
   | Schwerkraft | 25 % | 50 % | 100 % | 200 % | 250 % (*Jupiter*) | 300 % |
   | --- | --- | --- | --- | --- | --- | --- |
   | 250 cc values | 40.5 | 44.3 | 43.8 | 44.8 | 43.1 | 40.8 |
-  | *Wahnsinn* values | 79.2 | | 82.9 | | | 81.5 |
+  | *Wahnsinn* values up to 1.8 | 79.2 | | 82.9 | | | 81.5 |
 
   No kart flew off at any gravity, also not at 200 FPS with and without the switch. The
   pace hardly changes; how gravity feels by hand (jumps, sliding) nobody has tried yet.

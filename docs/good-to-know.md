@@ -2,6 +2,11 @@
 
 # Good to know
 
+- **Speed while racing.** In every class the race shows the kart's speed in km/h below
+  *Runde* (and *Position*), in the two-player game for each player's own kart. One unit/s
+  of the game is 3.6 km/h, the same scale as the *Top speed* of the tuning class.
+
+  ![speed in the race](../screenshots/16-race-speed.png)
 - **Phantoms of the new classes** are `data\Phantom\phantom-4-NN.mhk2` (200 cc),
   `phantom-5-NN.mhk2` (250 cc) and `phantom-6-NN.mhk2` (tuning), NN = track 01–08. The first
   finished time trial on a track creates the file; until then the highscore list shows a
@@ -10,7 +15,8 @@
   run in a new class). V1.1 has been used side by side with the patched game.
 - The player name only changes when the game asks for one (a time trial result in the top
   five) or with `--player-name`. Names longer than 12 characters are cut in phantom files.
-- The options menu rows sit a little higher than in the stock game to make room for the switch.
+- The options menu rows sit a little higher than in the stock game to make room for the switch,
+  and the pause page's items a little lower, for the line with class, switch and tuning values.
 - The new texts are German, like the rest of this version's texts. `--lang en` writes them in
   English instead; the game's own texts (*Weiter*, *Zurück*, the menu titles, …) stay German.
 - The switch only corrects the suspension. Two smaller frame-rate effects stay as they are: the

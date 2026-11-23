@@ -2,7 +2,7 @@
 
 # How it works
 
-- 80 small patches in the original code plus about 6400 bytes of new code (and 500 of data) in an added section (`.mod200`).
+- 91 small patches in the original code plus about 8300 bytes of new code (and 2400 of data) in an added section (`.mod200`).
 - The save file has fixed tables for 3 classes × 64 tracks and 3 × 20 championships, of which only
   8 tracks and 4 championships are ever used. The new records are stored in unused slots
   (tracks 33–64 and championships 11–20): those of the 150 cc rows for 200 cc, of the 100 cc
