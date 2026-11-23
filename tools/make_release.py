@@ -57,6 +57,11 @@ def main():
         os.path.abspath(__file__))), "dist")
     os.makedirs(dist, exist_ok=True)
     version = P.patch_version(release=True)          # a release has two digits: the next one after PATCH_RELEASE
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "CHANGELOG.md"),
+              encoding="utf-8") as f:
+        if "\n## %s\n" % version not in f.read():
+            raise SystemExit("CHANGELOG.md has no section '## %s': bring CHANGELOG, README and docs/ up to "
+                             "date for this release first" % version)
     patched, _, patches = P.patch_exe(exe, (P.FACTOR_200, P.FACTOR_250), (P.PULL_200, P.PULL_250), version)
     for lang in sorted(P.TEXTS):
         out = os.path.join(dist, "mhk2-patch-%s-%s.zip" % (version, lang))

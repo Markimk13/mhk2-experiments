@@ -27,4 +27,5 @@
   the V1.1 data (with `mhk2-01.dat` only the version label of new phantom files was checked).
 - The patch has been played by hand in fullscreen, in the new classes and against own
   phantoms; the measurements come from test copies in a window with simulated input. Reports
-  from real races are welcome.
+  from real races are welcome. Open points are
+  [GitHub issues](https://github.com/Markimk13/mhk2-experiments/issues).
