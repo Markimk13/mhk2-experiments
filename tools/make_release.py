@@ -4,7 +4,7 @@
 usage: make_release.py <original MHK2-XXL.exe> [dist dir]
 
 Runs patch_200cc.py once per language and writes dist/mhk2-patch-<version>-<lang>.zip, each with
-MHK2-XXL.exe, data/MK2/text-20.csv, tools/patch_200cc.py (for --unlock and the other commands) and
+MHK2-XXL.exe, data/MK2/text-20.csv, tools/patch_200cc.py (for building the exe and the other commands) and
 a short install note. The exe is the same in all of them.
 """
 import os
@@ -21,10 +21,11 @@ NOTES = {
           "Installation: den Inhalt des ZIPs in den Spielordner entpacken\r\n"
           "(vorher die originale MHK2-XXL.exe sichern). exe und data sind noetig.\r\n"
           "\r\n"
-          "Klassen freischalten (Python 3 noetig; im Spielordner, das Spiel vorher beenden):\r\n"
-          "  py tools\\patch_200cc.py --unlock settings.dat          50 bis 250 cc, je beide Meisterschaften\r\n"
-          "  py tools\\patch_200cc.py --unlock-tuning settings.dat   dasselbe und die Tuning-Klasse\r\n"
-          "Die exe selbst aus der originalen bauen:\r\n"
+          "Alles sofort freischalten: Hauptmenue -> Einstellungen -> Alles freigeschaltet: An.\r\n"
+          "Das oeffnet alle Klassen (auch Tuning), Meisterschaften und Strecken. Der eigene\r\n"
+          "Fortschritt bleibt gespeichert und ist mit Aus wieder da.\r\n"
+          "\r\n"
+          "Die exe selbst aus der originalen bauen (Python 3 noetig):\r\n"
           "  py tools\\patch_200cc.py \"<originale MHK2-XXL.exe>\" out\r\n"
           "\r\n"
           "Beschreibung: https://github.com/Markimk13/mhk2-experiments\r\n"
@@ -36,10 +37,11 @@ NOTES = {
           "(keep a backup of the original MHK2-XXL.exe). The exe and data are both needed.\r\n"
           "Only the patch's own menu texts are English; the game's own menus stay German.\r\n"
           "\r\n"
-          "Unlock the classes (needs Python 3; in the game folder, with the game closed):\r\n"
-          "  py tools\\patch_200cc.py --unlock settings.dat          50 to 250 cc, both championships each\r\n"
-          "  py tools\\patch_200cc.py --unlock-tuning settings.dat   the same and the tuning class\r\n"
-          "Build the exe yourself from the original one:\r\n"
+          "Unlock everything at once: Hauptmenue -> Einstellungen -> Everything unlocked: On.\r\n"
+          "This opens all classes (Tuning too), championships and tracks. Your own progress\r\n"
+          "stays saved and comes back with Off.\r\n"
+          "\r\n"
+          "Build the exe yourself from the original one (needs Python 3):\r\n"
           "  py tools\\patch_200cc.py \"<original MHK2-XXL.exe>\" out\r\n"
           "\r\n"
           "Description: https://github.com/Markimk13/mhk2-experiments\r\n"
@@ -68,7 +70,7 @@ def main():
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("MHK2-XXL.exe", patched)
             z.writestr("data/MK2/text-20.csv", P.text_overrides(lang, version).encode("cp1252"))
-            z.write(P.__file__, "tools/patch_200cc.py")       # for --unlock and the other commands
+            z.write(P.__file__, "tools/patch_200cc.py")       # for building the exe and the other commands
             z.writestr("LIESMICH.txt" if lang == "de" else "README.txt",
                        (NOTES[lang] % version).encode("cp1252"))
         print("wrote %s (%d bytes, %d patch sites)" % (out, os.path.getsize(out), len(patches)))
