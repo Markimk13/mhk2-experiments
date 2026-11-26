@@ -1,80 +1,118 @@
 [← Overview](../README.md) · [All documents](README.md)
 
-# 200 cc, 250 cc and Tuning: unlocking and what changes
+# 200 cc, 250 cc and unlocking
 
-## Unlocking 200 cc, 250 cc and Tuning
+The patch adds two classes after 150 cc: 200 cc and 250 cc. They are faster and pull harder
+out of corners. A third new class, *Tuning*, has [its own page](tuning-class.md).
 
-All three follow the game's own chain: win **Meisterschaft 2 in 150 cc** to open 200 cc,
-**Meisterschaft 2 in 200 cc** to open 250 cc, and **Meisterschaft 2 in 250 cc** to open the
-tuning class (*Du hast die Tuning-Klasse freigeschaltet!*). Until then the tuning row of the
-class menu stays empty. The win has to happen with a patched exe that knows the class above:
-the stock game never recorded a win in 150 cc, versions up to 1.2 never recorded one in
-200 cc, and versions up to 1.8 none in 250 cc. Inside 200 cc and 250 cc, Meisterschaft 2 and
-tracks 5–8 open up after winning Meisterschaft 1, as in the other classes; the tuning class
-has all eight tracks and both championships from the start.
+## Where to find it
+
+The menu *Leistungsklasse wählen* (choose class) has six rows:
+
+- 50 cc, 100 cc and 150 cc, as in the original game.
+- 200 cc and 250 cc. They are grey while they are locked.
+- Tuning. This row is empty while the class is locked.
+
+![class menu](../screenshots/01-engine-menu.png)
+
+## Unlocking every class
+
+Each class opens when you win Meisterschaft 2 (championship 2) in the class before it:
+
+1. Win Meisterschaft 2 in 150 cc. This opens 200 cc.
+2. Win Meisterschaft 2 in 200 cc. This opens 250 cc.
+3. Win Meisterschaft 2 in 250 cc. This opens the tuning class. The game shows
+   *Du hast die Tuning-Klasse freigeschaltet!* (you unlocked the tuning class).
 
 ![tuning class unlocked](../screenshots/14-unlock-tuning.png)
 
-To open them straight away use `--unlock` or `--unlock-tuning`, see
+In 200 cc and 250 cc, Meisterschaft 2 and tracks 5 to 8 open when you win Meisterschaft 1. This
+is the same as in the other classes. The tuning class has all 8 tracks and both championships
+from the start.
+
+### Alles freigeschaltet
+
+*Alles freigeschaltet* (everything unlocked) is a switch in the options menu. It opens
+everything at once:
+
+1. Open *Hauptmenü → Einstellungen* (settings).
+2. Select *Alles freigeschaltet*. The English texts call it *Everything unlocked*.
+3. Press ← or →, or click an arrow, to set it to *An* (on).
+
+![options menu with the switch on](../screenshots/17-options-unlock.png)
+
+While the switch is on:
+
+- The class menu shows all six classes, also Tuning.
+- Every class has Meisterschaft 2 and tracks 5 to 8.
+- The championship page has the button *Gegner* (see [Gegner](opponents.md)).
+
+The switch does not change your progress. Set it to *Aus* (off), and the classes and tracks that
+you did not win are locked again. A championship that you win while the switch is on counts as
+usual. It unlocks the next class or Meisterschaft 2 for the time after you switch it off.
+
+The commands `--unlock` and `--unlock-tuning` also open the classes. They write the progress
+into `settings.dat`, so the switch cannot undo them. `--lock` locks the new classes again. See
 [Commands](../README.md#commands-unlock-the-classes-build-the-exe).
 
-## 200 cc and 250 cc: what changes
+## What 200 cc and 250 cc change
 
-![engine class menu](../screenshots/01-engine-menu.png)
+| | 200 cc | 250 cc |
+| --- | --- | --- |
+| Top speed | As fast as 150 cc with the siren | As fast as 150 cc with the power can |
+| Pull | 1.5 times as much as 150 cc | 2 times as much as 150 cc |
+| Computer karts | Half of the game's handicap | No handicap: full throttle, like you |
 
-- **Menu:** *Leistungsklasse wählen* has six rows now: 200 cc and 250 cc, each greyed out
-  while locked, and Tuning, which is not shown until it is unlocked. The rows sit closer
-  together than in the stock game to make room.
-- **Speed:** the three stock classes differ in one number, the class factor (0.9 / 1.1 / 1.3).
-  It lengthens the gearing; the push at the wheels is the same in all three at the same
-  engine speed. So 50, 100 and 150 cc leave the line equally fast and only part once each
-  reaches its gear changes.
+- **Power-ups** add to the class. The siren in 250 cc pulls 5 times as hard as a 150 cc kart
+  without a power-up.
+- **Lifting the throttle** slows the kart down faster than in 150 cc.
+- **At the start**, 250 cc is not faster than 200 cc in the first half second. The tyres cannot
+  use all the pull. After 1 second, 250 cc is in front.
+- **Records:** time trial and championship highscores, phantoms and the unlock messages work
+  in both classes.
+- **Sound:** both classes use the engine sound of 150 cc.
+- **Computer karts:** you can change their pace on the page [Gegner](opponents.md).
 
-  200 cc and 250 cc continue the gearing with **1.468** and **1.545**, and they also **pull
-  harder**: 1.5 and 2 times the thrust (the siren pulls 2.5 times, the power can 5 times).
-  Gearing and pull together give the top speed that a 150 cc kart has with the two speed
-  power-ups: 200 cc is as fast as 150 cc with the siren, 250 cc as fast as 150 cc with the
-  power can. Rebuild with `--factor`, `--pull`, `--factor-250` and `--pull-250` to change them.
+## Details
 
-  Measured with Moorhuhn on a flat straight at 60 FPS, in game units per second:
+This section is for players who want the numbers.
 
-  | | Top speed | After 1 s | After 2 s | Time to 40 |
-  | --- | --- | --- | --- | --- |
-  | 50 cc | 36.2 (calculated) | 18.6 | 27.9 | – |
-  | 100 cc | 43.5 (calculated) | 20.1 | 30.8 | – |
-  | 150 cc | 50.5 | 21.2 | 32.9 | 2.91 s |
-  | 150 cc with siren | 57.59 | | | |
-  | **200 cc** | 57.58 | 30.0 | 44.2 | 1.65 s |
-  | 150 cc with power can | 61.25 | | | |
-  | **250 cc** | 61.21 | 31.8 | 49.7 | 1.37 s |
+The three original classes differ in one number, the class factor: 0.9, 1.1 and 1.3. A higher
+factor gives a higher top speed. The pull at the wheels is the same in all three classes. So
+50 cc, 100 cc and 150 cc start equally fast. They separate when each one reaches its gear
+changes. 200 cc and 250 cc have the factors 1.468 and 1.545. They also pull 1.5 and 2 times as
+hard. For comparison: the siren pulls 2.5 times as hard, the power can 5 times.
 
-  The speeds after 1 and 2 seconds are from a standing start. No start straight in the game
-  is long enough to reach top speed that way; the top speeds were measured on the longest
-  flat one (fourth track) by pushing the kart with a power-up and watching where it settles
-  afterwards.
-- **Power-ups** multiply on top of the class: the siren in 250 cc pulls 2 × 2.5 = 5 times as
-  hard as a plain 150 cc kart, and it lengthens the gearing by 10 % as in every class.
-- **Lifting the throttle** brakes harder in the new classes: the pull also scales the
-  engine's braking, the same way the game's power-ups do it. In the half second after
-  lifting at the same engine speed (about 4450 rpm) a 150 cc kart slows down by 6.4 units/s
-  per second, a 250 cc kart by 10.5.
-- **Off the line** 250 cc gains nothing over 200 cc: twice the thrust is more than the tyres
-  hold on the first metres. After half a second it is at 16.9 against 18.0, after one second
-  it is ahead.
-- **Opponents:** computer karts get the same gearing and pull and drive with each track's
-  150 cc AI settings, but the game holds them back less. In every class it gives them only
-  part throttle while they are near you (in 150 cc 0.9 of full throttle, times a random
-  strength per kart from 1.0 down to 0.6, and less when they are ahead). In 200 cc they lose
-  half of that handicap, in 250 cc all of it: full throttle all the time, like you. Their
-  driving itself (line, braking, steering) is the game's own in every class.
-  Races on the first track (75 s, mean speed of the six computer karts, game units per
-  second): 150 cc 36.5, 200 cc 45.1, 250 cc 48.7 (with version 1.8: 43.2); 250 cc with every
-  limit of the game's table set to full throttle: 50.2, the same within the scatter of a race.
-- **Records:** time trial and championship highscores, phantom karts, the highscore browser
-  and the unlock messages work for both classes.
-- **Sound:** both reuse the 150 cc engine sample.
+The tests used Moorhuhn on a flat straight at 60 FPS. Speeds are in game units per second.
+1 unit per second is 3.6 km/h.
 
-Earlier versions of this patch had other values: up to 1.2, 200 cc had the factor 1.5; in 1.3
-the factors were 1.52 and 1.64; neither had extra pull. Times and phantoms driven with them
-stay in the lists. They come from karts with the same or a slightly lower top speed and a
-much weaker pull, so they are easier to beat now.
+| | Top speed | After 1 s | After 2 s | Time to 40 |
+| --- | --- | --- | --- | --- |
+| 50 cc | 36.2 (calculated) | 18.6 | 27.9 | – |
+| 100 cc | 43.5 (calculated) | 20.1 | 30.8 | – |
+| 150 cc | 50.5 | 21.2 | 32.9 | 2.91 s |
+| 150 cc with siren | 57.59 | | | |
+| **200 cc** | 57.58 | 30.0 | 44.2 | 1.65 s |
+| 150 cc with power can | 61.25 | | | |
+| **250 cc** | 61.21 | 31.8 | 49.7 | 1.37 s |
+
+- The speeds after 1 and 2 seconds are from a standing start.
+- No start straight is long enough to reach the top speed from a standing start. So the tests
+  used the longest flat straight (the fourth track). A power-up pushed the kart to a high speed.
+  The top speed is the speed where the kart stayed after that.
+- The siren also gives a 10 % higher top speed, in every class.
+- Lifting the throttle at about 4450 rpm: a 150 cc kart loses 6.4 units/s per second, a 250 cc
+  kart 10.5.
+- Standing start after half a second: 250 cc 16.9, 200 cc 18.0.
+
+Computer karts in races on the first track (75 s, mean speed of the six computer karts, units
+per second): 150 cc 36.5, 200 cc 45.1, 250 cc 48.7. With version 1.8, 250 cc gave 43.2. A test
+with full throttle in every situation gave 50.2 in 250 cc. This is the same within the
+differences between races.
+
+Earlier versions of the patch had other values. Up to 1.2, 200 cc had the factor 1.5. In 1.3,
+the factors were 1.52 and 1.64. Both versions had no extra pull. Your times and phantoms from
+these versions stay in the lists. Those karts had the same or a slightly lower top speed and much
+less pull. So these times are easier to beat now.
+
+How the patch does it: [How it works](how-it-works.md#200-cc-250-cc-and-unlocking).

@@ -2,42 +2,52 @@
 
 # Phantom karts
 
-The stock game saves every finished time trial as `data\Phantom\new-phantom.mhk2` and races
-against `data\Phantom\phantom-C-TT.mhk2` (C = class 1–5, TT = track 01–08). But it skips every
-phantom file that was recorded on the same PC – it compares an id stored in the file with its
-own – so it never shows your own run. `mhk2_manager` works around that from outside.
+A phantom is a recorded run that drives with you in a time trial. The original game never shows
+your own runs as phantoms. With the patch, the game races you against your own best run, and you
+need no helper program.
 
-With the patch the game does it itself:
+## Where to find it
 
-- **Own ghosts.** Phantom files from this PC are loaded like any other.
-- **The best run becomes the phantom.** A finished time trial that is faster than the phantom
-  of its track and class replaces it at the finish. The first run on a track without phantom
-  file creates one (that is every 200 cc and 250 cc track at first). Slower runs change nothing.
-- **Version.** New phantom files start with `V1.1` when the V1.1 data (`mhk2-01.dat`) is
-  loaded and with `V1.0` otherwise. The stock game always writes `V1.0`.
-- **Name.** The name typed at *Neue Highscore* (time trial or championship) is kept in
-  `settings.dat` and written into every new phantom file, in bytes 8–19, where `mhk2_manager`
-  keeps its player name. The run it was typed for gets it too. The highscore lists show the name
-  instead of "PHANTOM KART". The next time the name page comes up, the field already holds it
-  (the cursor behind it); confirming an empty field takes the kept name as well.
+Start a time trial in any class. The phantom of the track and the class drives with you. The
+game keeps the phantoms in the folder `data\Phantom`.
 
 ![result list with the phantom's name](../screenshots/07-phantom-name.png)
 
-The name can be set without waiting for a highscore (at most 12 characters):
+## How to use it
+
+- **Your own phantoms.** The game loads phantom files from your PC like all other phantom files.
+- **Your best run becomes the phantom.** When you finish a time trial faster than the phantom,
+  your run replaces the phantom. A slower run changes nothing.
+- **The first run** on a track without a phantom file creates the file. At first, this is every
+  track in 200 cc, 250 cc and Tuning.
+- **Your name.** When you get a new highscore, the game asks for your name. The game writes this
+  name into every new phantom file. The highscore lists show the name instead of
+  "PHANTOM KART". The next time, the name page already shows your name. Press Enter to keep it.
+- **Downloaded phantoms.** Drag a phantom file onto `MHK2-XXL.exe` to install it, as in the
+  original game. This now also works for files from your PC.
+
+You can set the name without a new highscore. It can have 12 characters:
 
 ```powershell
-py tools\patch_200cc.py --player-name "Name" "<game folder>\settings.dat"
+py tools\patch_200cc.py --player-name "Name" settings.dat
 ```
 
-`MHK2-XXL.exe some-file.mhk2`, the stock game's way of installing a downloaded phantom, now
-also accepts files from this PC.
+## Good to know
 
-Things to keep in mind:
+- **A replaced phantom is gone**, also an imported phantom or a phantom of the original game.
+  Keep copies of the phantoms that you want to race again. `mhk2_manager` keeps the original
+  phantoms in `data\Phantom\source`.
+- **mhk2_manager** does not accept the phantom files of the game as its own custom phantoms,
+  because they have no checksum of the manager. The manager and the patched game together are
+  not tested.
+- **The original game** on the same PC still does not load these files.
+- **The name** changes only when the game asks for it, or with `--player-name`. The game asks
+  when a time trial gets into the top five.
+- **File names** of the new classes: `phantom-4-NN.mhk2` (200 cc), `phantom-5-NN.mhk2`
+  (250 cc) and `phantom-6-NN.mhk2` (Tuning). NN is the track, 01 to 08. Until the first run,
+  the highscore list shows a placeholder phantom with 10:39:99.
+- **Version.** New phantom files start with `V1.1` when the game has the data of the V1.1
+  update (`mhk2-01.dat`). Otherwise they start with `V1.0`. The original game always writes
+  `V1.0`.
 
-- A replaced phantom file is gone, also an imported one or one of the original phantoms. Keep
-  copies of the ones you want to race again (`mhk2_manager` keeps the originals in
-  `data\Phantom\source`).
-- Phantom files written by the game have no `mhk2_manager` checksum, so the manager does not
-  accept them as custom phantoms. Going by its code, a manager that runs alongside keeps
-  archiving the runs and puts its own stamped copy in place; that combination is untested.
-- The files keep this PC's id. The unpatched game on the same PC still skips them.
+How the patch does it: [How it works](how-it-works.md#phantom-karts).

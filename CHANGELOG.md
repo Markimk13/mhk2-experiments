@@ -3,6 +3,48 @@
 Saves (`settings.dat`) keep their format through all versions; records and phantoms of earlier
 versions stay.
 
+## 1.10
+
+### New
+
+- Computer karts: a new page [*Gegner*](docs/opponents.md) sets the computer karts of every
+  class. Open it with the button *Gegner* on the page *Meisterschaft wählen*. The button is there
+  after you unlock the tuning class.
+- Computer karts: *Verbesserte Gegner* (0 to 6) sets how many computer karts use a better
+  driver. These karts follow the line and the speed of a player's time trials.
+- Computer karts: an improved kart brakes and steers around a slow kart in front of it. In tests,
+  pile-ups of 3 or more karts went from 30 to 12.
+- Computer karts: a computer kart that makes no progress for 5 seconds goes back to the middle of
+  the road. This holds in 200 cc, 250 cc and the tuning class. In 50 cc to 150 cc, it holds after
+  you change a value on the page *Gegner*.
+- Options: the switch [*Alles freigeschaltet*](docs/engine-classes.md#alles-freigeschaltet)
+  opens every class, championship and track. Switch it off, and your own progress is back.
+- Command: `--lock` locks 200 cc, 250 cc and the tuning class again. Records, phantoms and tuning
+  values stay.
+
+### Changed
+
+- Computer karts: *Tempo* is now on the page *Gegner* and holds in every class. Its new first
+  step *Standard* is the pace of the class. It is the default.
+- Tuning class: *Tempo* is no longer a part of the presets. The line *Am Limit* does not count it.
+  The preset *Hetzjagd* keeps its kart values. Set *Tempo* to 200 % yourself for its old
+  behaviour.
+- Menu: the page *Meisterschaft wählen* has two columns when it has the button *Gegner*. The
+  picture is on the left, the four tracks are on the right.
+- Pause page: in a race with computer karts, it shows the two values of the page *Gegner*.
+- Version numbers: a test build between two releases is now called, for example, 1.10-pre8.
+- Saves: a save from 1.9 or older starts with *Tempo* at *Standard* and *Verbesserte Gegner* at 0.
+  The old *Tempo* of the tuning class is not taken over.
+- Docs: the documents have a new structure. Pages for players, the numbers in a section
+  *Details*, and two pages for developers.
+
+### For developers
+
+- New markers in `settings.dat`: `NEWG` (*Verbesserte Gegner*), `STDG` (the two values of
+  *Gegner* hold for every class) and `FREI` (*Alles freigeschaltet*). 1.10 no longer reads the
+  1.9 table `OPPS`. See [How it works](docs/how-it-works.md#save-file).
+- A hook on the championship page adds the button *Gegner* and moves the rows into two columns.
+
 ## 1.9
 
 - The tuning class is unlocked by winning Meisterschaft 2 in 250 cc; until then it is not shown

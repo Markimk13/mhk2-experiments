@@ -2,30 +2,36 @@
 
 # Good to know
 
-- **Speed while racing.** In every class the race shows the kart's speed in km/h below
-  *Runde* (and *Position*), in the two-player game for each player's own kart. One unit/s
-  of the game is 3.6 km/h, the same scale as the *Top speed* of the tuning class.
+Short answers about the patch. The pages of the features have more.
+
+## Limits
+
+- **Speed while racing.** In every class, the race shows the speed of your kart in km/h below
+  *Runde* (lap) and *Position*. In the two-player game, each player sees the speed of their own
+  kart.
 
   ![speed in the race](../screenshots/16-race-speed.png)
-- **Phantoms of the new classes** are `data\Phantom\phantom-4-NN.mhk2` (200 cc),
-  `phantom-5-NN.mhk2` (250 cc) and `phantom-6-NN.mhk2` (tuning), NN = track 01–08. The first
-  finished time trial on a track creates the file; until then the highscore list shows a
-  placeholder phantom (10:39:99).
-- **mhk2_manager** knows 200 ccm, 250 ccm and Tuning from V1.1 on (V1.0 stops at the first
-  run in a new class). V1.1 has been used side by side with the patched game.
-- The player name only changes when the game asks for one (a time trial result in the top
-  five) or with `--player-name`. Names longer than 12 characters are cut in phantom files.
-- The options menu rows sit a little higher than in the stock game to make room for the switch,
-  and the pause page's items a little lower, for the line with class, switch and tuning values.
-- The new texts are German, like the rest of this version's texts. `--lang en` writes them in
-  English instead; the game's own texts (*Weiter*, *Zurück*, the menu titles, …) stay German.
-- The switch only corrects the suspension. Two smaller frame-rate effects stay as they are: the
-  computer karts' steering logic runs every other frame, and a wheel in the air loses 0.5 % of its
-  spin per physics step. How often the computer karts fire their power-ups no longer depends on
-  the frame rate (see [60 FPS physics switch](60fps-physics.md)).
-- Not tried yet: two-player modes in the new classes or with the switch on, and driving on
-  the V1.1 data (with `mhk2-01.dat` only the version label of new phantom files was checked).
-- The patch has been played by hand in fullscreen, in the new classes and against own
-  phantoms; the measurements come from test copies in a window with simulated input. Reports
-  from real races are welcome. Open points are
-  [GitHub issues](https://github.com/Markimk13/mhk2-experiments/issues).
+- **Language.** The new menu texts are German. The English zip has them in English. The game's
+  own texts (*Weiter*, *Zurück*, the menu titles) stay German in both zips.
+- **Menu layout.** The rows of the options menu are higher and closer together than in the
+  original game, to make room for the two switches. The items of the pause page are lower, to
+  make room for the line with the class and the values.
+
+## Not tested
+
+- Two-player games in the new classes, or with the switch *60-FPS-Fahrphysik* on.
+- Races with the data of the V1.1 update (`mhk2-01.dat`). Only the version in new phantom files
+  was checked.
+- Improved computer karts in 100 cc and 200 cc (see [Gegner](opponents.md)).
+
+## Other programs
+
+- **mhk2_manager** knows 200 ccm, 250 ccm and Tuning from its version V1.1. V1.0 stops at the
+  first run in a new class. V1.1 was used next to the patched game.
+
+## Problems and reports
+
+- **How the patch was tested.** The patch was played by hand in fullscreen, in the new classes
+  and against own phantoms. The measurements come from test copies of the game in a window, with
+  simulated input. Reports from your races help.
+- **Open points and reports** are [GitHub issues](https://github.com/Markimk13/mhk2-experiments/issues).

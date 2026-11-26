@@ -1,135 +1,158 @@
-# Moorhuhn Kart 2 – 200 cc, 250 cc and a tuning class, 60 FPS physics switch, own phantom karts
+# Moorhuhn Kart 2 – 200 cc, 250 cc, a tuning class, better computer karts, 60 FPS physics, own phantoms
 
-A fan patch for **Moorhuhn Kart 2 XXL** (German version V1.0, exe build Mar 23 2004). It adds
+A fan patch for **Moorhuhn Kart 2 XXL**, the German version V1.0 from March 2004. It adds:
 
-- two engine classes, **200 cc** and **250 cc**, next to 50 / 100 / 150 cc,
-- a sixth class, **Tuning**, whose kart and world you set up yourself in the game: gearing,
-  pull, grip, weight, brakes, steering, downforce, gravity and the pace of the computer karts,
-- a switch **60-FPS-Fahrphysik** in the options menu that makes the kart drive at any frame rate
-  the way it does at 60 FPS (off by default), and
-- **phantom karts without a helper program**: the game races against your own best run,
-  replaces the phantom when you beat it, and labels new phantom files with data version and
-  player name.
+- **200 cc and 250 cc**: two faster classes after 50, 100 and 150 cc.
+- **Tuning**: a sixth class. You set the kart and the gravity yourself in the game.
+- **Gegner** (opponents): a page that sets the pace of the computer karts in every class. It
+  also gives them a better way to drive.
+- **60-FPS-Fahrphysik**: a switch for high frame rates. The kart drives at 200 FPS as it does at
+  60 FPS.
+- **Alles freigeschaltet**: a switch that opens every class, championship and track.
+- **Own phantoms**: the game races you against your own best time trial. You need no helper
+  program.
 
-> **Kurz auf Deutsch:** Ein Fan-Patch für Moorhuhn Kart 2 XXL: zwei neue Leistungsklassen
-> (200 cc, 250 cc), eine Tuning-Klasse mit eigenen Fahrwerten und Vorlagen, ein Schalter
-> *60-FPS-Fahrphysik* (das Kart fährt bei 200 FPS wie bei 60 FPS) und eigene Phantom-Karts
-> ohne Zusatzprogramm. Installation: das ZIP `…-de.zip` aus den
-> [Releases](../../releases) in den Spielordner entpacken (vorher `MHK2-XXL.exe` sichern).
-> Klassen ohne Meisterschaftssieg freischalten (Python 3, im Spielordner, Spiel beendet):
-> `py tools\patch_200cc.py --unlock settings.dat` (50 bis 250 cc) oder
-> `py tools\patch_200cc.py --unlock-tuning settings.dat` (dazu die Tuning-Klasse); die exe
-> selbst bauen: siehe [Commands](#commands-unlock-the-classes-build-the-exe). Der Patch ist für
-> die deutsche V1.0 von der *10 Jahre Moorhuhn*-CD gemacht; andere exe-Versionen (V1.1,
-> englisch, …): siehe [Other versions of the exe](docs/building.md#other-versions-of-the-exe).
-> Die Beschreibung unten ist auf Englisch; die Menüs im Spiel sind deutsch.
+> **Kurz auf Deutsch:** Ein Fan-Patch für Moorhuhn Kart 2 XXL. Er bringt zwei neue
+> Leistungsklassen (200 cc, 250 cc) und eine Tuning-Klasse mit eigenen Fahrwerten und Vorlagen.
+> Die Seite *Gegner* stellt Tempo und bessere Computer-Karts in jeder Klasse ein. Dazu kommen
+> die Schalter *60-FPS-Fahrphysik* und *Alles freigeschaltet* und eigene Phantom-Karts ohne
+> Zusatzprogramm.
+> Installation: das ZIP `…-de.zip` aus den [Releases](../../releases) in den Spielordner
+> entpacken. Vorher `MHK2-XXL.exe` sichern. Alle Klassen öffnet der Schalter
+> *Einstellungen → Alles freigeschaltet*. Der Patch ist für die deutsche V1.0 von der
+> *10 Jahre Moorhuhn*-CD. Andere exe-Versionen: siehe
+> [Other versions of the exe](docs/building.md#other-versions-of-the-exe).
+> Die Beschreibung unten ist auf Englisch. Die Menüs im Spiel sind deutsch.
 
 ## Install
 
-You need an installed **Moorhuhn Kart 2 XXL**; the patch does not include the game's data. Take
-the zip from the [Releases](../../releases) page and unpack it into the game folder (the one with
-`MHK2-XXL.exe`). Keep a backup of the original exe first.
+You need an installed **Moorhuhn Kart 2 XXL**. The patch does not contain the game's data.
 
-| File | Purpose |
+1. Make a copy of `MHK2-XXL.exe` in your game folder. You need it to go back to the original
+   game.
+2. Download a zip from the [Releases](../../releases) page.
+3. Unpack the zip into the game folder (the folder with `MHK2-XXL.exe`). Replace the files that
+   are there.
+4. Start the game. The main menu shows the patch version below its buttons.
+
+| File | What it is |
 | --- | --- |
-| `MHK2-XXL.exe` | patched executable |
-| `data\MK2\text-20.csv` | new menu texts (plain text, editable) |
-| `tools\patch_200cc.py` | the patcher, for unlocking the classes and the other [commands](#commands-unlock-the-classes-build-the-exe) (needs Python 3) |
+| `MHK2-XXL.exe` | The patched game |
+| `data\MK2\text-20.csv` | The new menu texts. Without this file, the new menu items show `**TEXT*NOT*FOUND***`. |
+| `tools\patch_200cc.py` | The patcher, for the [commands](#commands-unlock-the-classes-build-the-exe) below. It needs Python 3. |
 
-There are two zips with the same exe: `…-de.zip` has the new menu texts in German, `…-en.zip`
-in English. The English one translates only the patch's own texts; the game's own menus stay
-German (*Weiter* = next, *Zurück* = back). The screenshots show the German texts.
+There are two zips with the same game file:
 
-Both files are needed – without the text file the new menu entries read `**TEXT*NOT*FOUND***`.
-The main menu shows the patch version under its buttons. A release has two digits (1.8, 1.9);
-builds in between have a third one that counts the changes since the last release (1.8.8 is
-the eighth change after 1.8).
+- `…-de.zip` has the new menu texts in German.
+- `…-en.zip` has the new menu texts in English. The game's own menus stay German
+  (*Weiter* = next, *Zurück* = back).
 
-When updating from an earlier version of this patch, replace both again. `settings.dat` keeps its
-size, so existing saves keep working. A save from version 1.6 or older gets the gravity (100 %)
-added the first time the tuning class is opened, one from 1.8 or older *Gegner* (100 %); its
-tuning values and own presets stay. Since 1.9 the tuning class has to be unlocked (see
-[Unlocking](docs/engine-classes.md#unlocking-200-cc-250-cc-and-tuning));
-on a save that has not won Meisterschaft 2 in 250 cc it is hidden until then.
+The screenshots in these documents show the German texts.
+
+**Version numbers.** A release has two numbers, for example 1.10. A test build between two
+releases has the number of the next release and `-pre`, for example 1.10-pre8.
+
+**Update from an earlier version of the patch.** Unpack the new zip in the same way. Your save
+file `settings.dat` keeps your records, phantoms, tuning values and own presets. More about
+old saves: [Changelog](CHANGELOG.md).
 
 ## Commands: unlock the classes, build the exe
 
-The patch comes with one Python script, `tools\patch_200cc.py` (in this repository and in the
-release zips). It needs [Python 3](https://www.python.org/downloads/) and nothing else. Run it
-in the game folder, with the game closed (the game writes `settings.dat` itself while it runs).
+You do not need these commands to play. The switch *Alles freigeschaltet* in the options menu
+opens everything without a command (see [Unlocking](docs/engine-classes.md#unlocking-every-class)).
 
-**Unlock the classes without winning the championships:**
+The commands need [Python 3](https://www.python.org/downloads/). Run them in the game folder.
+Close the game first, because the game writes `settings.dat` while it runs.
+
+Open 50 cc to 250 cc, each with Meisterschaft 2 and tracks 5 to 8:
 
 ```powershell
 py tools\patch_200cc.py --unlock settings.dat
 ```
 
-opens 50 cc to 250 cc, each with Meisterschaft 2 and tracks 5–8.
+Do the same and also open the tuning class:
 
 ```powershell
 py tools\patch_200cc.py --unlock-tuning settings.dat
 ```
 
-does the same and opens the tuning class too.
+Lock 200 cc, 250 cc and the tuning class again. Your records, phantoms and tuning values stay:
 
-**Other settings in `settings.dat`:** `--physics60 on|off settings.dat` (the [60 FPS
-switch](docs/60fps-physics.md)) and `--player-name "Name" settings.dat` (the name in new phantom files, at most 12
-characters).
+```powershell
+py tools\patch_200cc.py --lock settings.dat
+```
 
-**Build the patched exe yourself** instead of taking the one from the zip, from your own
-original exe (for example the backup you made):
+Switch the 60 FPS physics on (or `off`):
+
+```powershell
+py tools\patch_200cc.py --physics60 on settings.dat
+```
+
+Set the name for new phantom files (12 characters at most):
+
+```powershell
+py tools\patch_200cc.py --player-name "Name" settings.dat
+```
+
+Build the patched exe yourself from your original exe, for example from your copy:
 
 ```powershell
 py tools\patch_200cc.py "<original MHK2-XXL.exe>" out
 ```
 
-writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`, the same files as in the release zip;
-copy both into the game folder. Add `--lang en` for the English menu texts. More in
-[Building it yourself](docs/building.md).
+This writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`. Copy both into the game folder.
+More: [Building it yourself](docs/building.md#building-it-yourself).
 
 ## What the patch does
 
-**200 cc and 250 cc.** Two engine classes above 150 cc. They have longer gearing and pull
-harder: 200 cc is as fast as a 150 cc kart with the siren, 250 cc as fast as one with the power
-can. Each is unlocked by winning Meisterschaft 2 in the class below, like the stock classes. The
-computer karts are held back less than in the stock classes: by half as much in 200 cc, not at
-all in 250 cc. → [200 cc, 250 cc and Tuning](docs/engine-classes.md)
+**200 cc and 250 cc.** Two classes after 150 cc. 200 cc is as fast as 150 cc with the siren.
+250 cc is as fast as 150 cc with the power can. Win Meisterschaft 2 in the class before to
+unlock the next class. → [200 cc, 250 cc and unlocking](docs/engine-classes.md)
 
-![engine class menu](screenshots/01-engine-menu.png)
+![class menu](screenshots/01-engine-menu.png)
 
-**Tuning class.** A sixth class, unlocked by winning Meisterschaft 2 in 250 cc, whose values you
-set in the game: gearing, engine power, grip, weight, brakes, steering and downforce of the
-kart, the gravity, and the pace of the computer karts. Built-in presets (the five classes and
-fourteen more) and eight slots for your own; extreme values are allowed, and a line shows how
-close they are to the limit of what still races well, and the top speed they give.
-→ [Tuning class](docs/tuning-class.md)
+**Tuning class.** A sixth class. You set gearing, engine power, grip, weight, brakes, steering,
+downforce and gravity. There are 19 ready presets and 8 slots for your own. A line tells you
+if your values are extreme but still race well. → [Tuning class](docs/tuning-class.md)
 
 ![tuning page](screenshots/08-tuning-page.png)
 
-**60 FPS physics switch.** *Einstellungen → 60-FPS-Fahrphysik*: the stock game's wheel springs
-get softer the higher the frame rate, so at 200 FPS the kart sags, slides and hops. Switched on,
-it drives at any frame rate as it does at 60 FPS. → [60 FPS physics switch](docs/60fps-physics.md)
+**Gegner (opponents).** *Meisterschaft wählen → Gegner* sets the computer karts of every class.
+*Tempo* sets how fast they drive. *Verbesserte Gegner* sets how many of them drive a racing
+line that a player drove. → [Gegner](docs/opponents.md)
 
-**Phantom karts.** The game races against your own best run, replaces the phantom when you beat
-it, and writes your name and the data version into new phantom files.
-→ [Phantom karts](docs/phantom-karts.md)
+![page Gegner](screenshots/13-opponents.png)
 
-**Smaller things.** The name page remembers the name you typed last. At high frame rates the
-computer karts no longer fire their power-ups more often than at 60 FPS. The main menu shows the
-patch version.
+**60 FPS physics switch.** *Einstellungen → 60-FPS-Fahrphysik*. At high frame rates, the original
+game makes the kart slow and slippery. With the switch on, the kart drives at every frame rate
+as it does at 60 FPS. → [60 FPS physics switch](docs/60fps-physics.md)
+
+**Phantom karts.** The game races you against your own best time trial. When you beat it, your
+new run becomes the phantom. → [Phantom karts](docs/phantom-karts.md)
+
+**Smaller things.** The race shows your speed in km/h. The name page remembers the last name
+that you typed. → [Good to know](docs/good-to-know.md)
 
 ## Documentation
 
+**For players**
+
 | Document | Content |
 | --- | --- |
-| [200 cc, 250 cc and Tuning](docs/engine-classes.md) | How the classes are unlocked, gearing and pull, measured speeds, the computer karts |
-| [Tuning class](docs/tuning-class.md) | The tuning pages, every value, the *Am Limit* line, top speed, presets, own presets, the pause page, measurements, the downforce rules |
-| [60 FPS physics switch](docs/60fps-physics.md) | Why the game drives differently at 200 FPS, what the switch changes, the computer karts' power-ups |
-| [Phantom karts](docs/phantom-karts.md) | Own ghosts, the best run as phantom, version and name in the files |
-| [Building it yourself](docs/building.md) | The patcher, building the exe from your own, other versions of the exe |
-| [How it works](docs/how-it-works.md) | What the patch changes in the exe and where it keeps its data in `settings.dat` |
-| [Good to know](docs/good-to-know.md) | Limits, things that were not tried, mhk2_manager |
+| [200 cc, 250 cc and unlocking](docs/engine-classes.md) | How to unlock every class, the switch *Alles freigeschaltet*, what 200 cc and 250 cc change |
+| [Tuning class](docs/tuning-class.md) | The tuning pages, every value, the presets, your own presets, the lines *Am Limit* and *Top speed* |
+| [Gegner](docs/opponents.md) | The computer karts in every class: *Tempo*, *Verbesserte Gegner*, karts that are stuck |
+| [60 FPS physics switch](docs/60fps-physics.md) | Why the game drives differently at 200 FPS, and what the switch changes |
+| [Phantom karts](docs/phantom-karts.md) | Your best run as the phantom, the name in phantom files |
+| [Good to know](docs/good-to-know.md) | Speed display, limits, things not tested, mhk2_manager, where to report problems |
 | [Changelog](CHANGELOG.md) | What changed in each version |
+
+**For developers**
+
+| Document | Content |
+| --- | --- |
+| [Building it yourself](docs/building.md) | Other versions of the exe, the patcher, the release zips |
+| [How it works](docs/how-it-works.md) | What the patch changes in the exe, and where it keeps its data in `settings.dat` |
 
 ## How this was made
 
