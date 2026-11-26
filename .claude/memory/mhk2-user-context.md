@@ -12,3 +12,5 @@ The manager V1.0 (2020) hard-coded three engine classes (`Engine.ENGINE_50/100/1
 The patch was started on 2026-11-18 in the user's private repository (first commit "Add 200 ccm with Fable 5.2") and later moved into this public repository, see [[mhk2-public-release]].
 
 See also [[mhk2-windowed-test-recipe]].
+
+New features go into the patch (the exe and `tools/`), never into mhk2_manager (user, 2026-11-27, when the async challenges of the online-race idea were planned). The manager is no longer part of this project's working environment; the manager notes in [[mhk2-phantom-and-manager-internals]] stay as background, for example for the phantom checksum.

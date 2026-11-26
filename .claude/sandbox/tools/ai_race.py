@@ -29,7 +29,8 @@ per class, --geo k=v,... sets its values for every kart, --geo-kart N:k=v,... fo
 seconds goes back to the road), --watch WT[,WA] sets its times and switches it on in every class.
 One row per kart per game frame; the last columns are the kart number, laps + progress
 (car+220h), the driver's allowed speed (controller +88h) and the controller's throttle, brake
-and steering.
+and steering, then the surface index under each wheel (wheel+14h), the up axis and the car
+state car+29Ch (10, 15, 20, 24: hit by a power-up).
 """
 import argparse
 import ctypes
@@ -191,6 +192,16 @@ def main():
     par = H.u32(h, phys[0] + 4)                        # the vehicle's parameter object
     print("kart 0: mass %.2f | drag: factor %.3f, coefficient %.3f | downforce: factor %.3f, coefficient %.3f" % (
         mass[0], f32(h, phys[0] + 0x260), f32(h, par + 0x1DC), f32(h, phys[0] + 0x264), f32(h, par + 0x1E0)), flush=True)
+    # the track's ground materials (objects.txt, block Track): singleton [0x5E8500], records of 7Ch
+    # bytes from its +44h; +2Ch lat friction, +30h roll friction, +34h material resistance (the drag
+    # of the force function, 0x43FA29); a wheel's surface index is wheel+14h (negative: no ground)
+    st = H.u32(h, 0x5E8500)
+    if st:
+        sb, se = H.u32(h, st + 0x44), H.u32(h, st + 0x48)
+        n = (se - sb) // 0x7C if sb and se > sb and (se - sb) % 0x7C == 0 else 0
+        for k in range(min(n, 16)):
+            lat, roll, res = struct.unpack("<3f", H.read(h, sb + k * 0x7C + 0x2C, 12))
+            print("surface %d: lat %.3f roll %.3f resistance %.3f" % (k, lat, roll, res), flush=True)
     rows = []
     last = None
     stop_at = None
@@ -215,12 +226,15 @@ def main():
                 wheels += [struct.unpack_from("<i", w, k * 0x84 + 0x18)[0], struct.unpack_from("<f", w, k * 0x84 + 0x40)[0]]
             prog = f32(h, c + 0x220)
             cl = struct.unpack("<4f", H.read(h, ctls[i] + 0x14, 12) + H.read(h, ctls[i] + 0x88, 4)) if ctls[i] else (0, 0, 0, 0)
+            surf = [struct.unpack_from("<i", w, k * 0x84 + 0x14)[0] for k in range(4)]
             rows.append((rt, i, mass[i], x, y, z, vx, vy, vz, m[0], m[1], m[2], m[8], m[9], m[10], *wheels,
-                         knum[i], prog, cl[3], cl[0], cl[1], cl[2], f32(h, c + 0x22C), f32(h, c + 0x224)))
+                         knum[i], prog, cl[3], cl[0], cl[1], cl[2], f32(h, c + 0x22C), f32(h, c + 0x224),
+                         *surf, m[4], m[5], m[6], H.u32(h, c + 0x29C)))
     else:
         raise SystemExit("race clock stopped (paused?)")
     with open(a.out, "w") as f:
-        f.write("t,kart,mass,x,y,z,vx,vy,vz,fx,fy,fz,sx,sy,sz," + ",".join(f"c{k},load{k}" for k in range(4)) + ",knum,prog,allow,thr,brk,steer,lat,pathprog\n")
+        f.write("t,kart,mass,x,y,z,vx,vy,vz,fx,fy,fz,sx,sy,sz," + ",".join(f"c{k},load{k}" for k in range(4))
+                + ",knum,prog,allow,thr,brk,steer,lat,pathprog,surf0,surf1,surf2,surf3,ux,uy,uz,cstate\n")
         for row in rows:
             f.write(",".join("%.5f" % v if isinstance(v, float) else str(v) for v in row) + "\n")
     print(f"{os.path.basename(exe)}: {len(rows)} rows, {len(cars)} karts, fps stat {f32(h, 0x0087B0CC):.1f}")

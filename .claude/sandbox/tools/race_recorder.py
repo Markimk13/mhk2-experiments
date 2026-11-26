@@ -22,6 +22,10 @@ clock. Columns:
            and the timer at car+2D4h
   lat      the kart's place across the road as the path planner counts it (car+22Ch; 0.5 = middle)
   pathprog the kart's place along the track path (car+224h, 0..1; on Sumpf half a lap behind prog)
+  surf0..3 the ground under each wheel (wheel+14h: index into the track's materials, -1 = none;
+           the race's .json lists them as "surfaces": lat friction, roll friction, material resistance)
+  c0..3 load0..3  wheel contact in the last physics step (wheel+18h) and load (wheel+40h)
+  ux uy uz fx fy fz  the kart's up and forward axes
 --once stops after the first race.
 
 --video also films the game window with ffmpeg (on PATH or from winget) while the game runs,
@@ -374,6 +378,38 @@ def controller(p, car):
     return c if c and p.u32(c + 0x10) == car else 0
 
 
+def wheel_columns(p, c):
+    """",surf0..3,c0..3,load0..3,ux,uy,uz,fx,fy,fz" of car c: the ground under each wheel (index into
+    the track's materials, -1 none), contact in the last step, load; the kart's up and forward axes"""
+    v = p.u32(c + 0x44)                                # the vehicle (physics) object
+    w = p.read(v + 0x34, 4 * 0x84) if v else None      # four wheels of 84h bytes
+    fr = p.u32(v + 0x30) if v else 0
+    m = p.read(fr + 0x10, 48) if fr else None          # frame matrix: right, up, at (+ pad)
+    if not w or not m:
+        return "," * 18
+    surf = [struct.unpack_from("<i", w, k * 0x84 + 0x14)[0] for k in range(4)]
+    cont = [struct.unpack_from("<i", w, k * 0x84 + 0x18)[0] for k in range(4)]
+    load = [struct.unpack_from("<f", w, k * 0x84 + 0x40)[0] for k in range(4)]
+    mf = struct.unpack("<12f", m)
+    return "," + ",".join(["%d" % s for s in surf] + ["%d" % x for x in cont] + ["%.1f" % x for x in load]
+                          + ["%.4f" % x for x in (mf[4], mf[5], mf[6], mf[8], mf[9], mf[10])])
+
+
+def surfaces(p):
+    """the track's materials: [lat friction, roll friction, material resistance] per surface index"""
+    st = p.u32(0x5E8500)
+    if not st:
+        return []
+    sb, se = p.u32(st + 0x44), p.u32(st + 0x48)
+    if not sb or se <= sb or (se - sb) % 0x7C or (se - sb) // 0x7C > 64:
+        return []
+    out = []
+    for k in range((se - sb) // 0x7C):
+        raw = p.read(sb + k * 0x7C + 0x2C, 12)
+        out.append([round(x, 4) for x in struct.unpack("<3f", raw)] if raw else None)
+    return out
+
+
 def record(p, out_dir, once, video=None, audio=None):
     while p.alive():
         race = p.u32(RACE)
@@ -397,6 +433,7 @@ def record(p, out_dir, once, video=None, audio=None):
             m["video"], m["video_t"] = at
         if audio and audio.start_wall and race_zero >= audio.start_wall:
             m["audio"], m["audio_t"] = os.path.basename(audio.path), round(race_zero - audio.start_wall, 3)
+        m["surfaces"] = surfaces(p)                    # surfN columns index this list
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         base = os.path.join(out_dir, "%s_c%d_t%d" % (stamp, m["class"], m["track"]))
         json.dump(m, open(base + ".json", "w"), indent=1)
@@ -405,7 +442,8 @@ def record(p, out_dir, once, video=None, audio=None):
         rows = 0
         last = None
         with open(base + ".csv", "w") as f:
-            f.write("t,kart,x,y,z,vx,vy,vz,prog,thr,brk,steer,item,stuck,moved,cstate,ctimer,lat,pathprog\n")
+            f.write("t,kart,x,y,z,vx,vy,vz,prog,thr,brk,steer,item,stuck,moved,cstate,ctimer,lat,pathprog,"
+                    "surf0,surf1,surf2,surf3,c0,c1,c2,c3,load0,load1,load2,load3,ux,uy,uz,fx,fy,fz\n")
             t_last = 0.0
             while p.alive() and p.u32(RACE) == race and (p.u32(race + 0x10), p.u32(race + 0x14)) == (b, e):
                 raw = p.read(race + 0x20, 4)
@@ -438,6 +476,7 @@ def record(p, out_dir, once, video=None, audio=None):
                         ctl = ",,"
                     item = p.i32(c + 0x270)
                     extra += ",%d,%.3f,%.4f,%.4f" % (p.i32(c + 0x29C), p.f32(c + 0x2D4), p.f32(c + 0x22C), p.f32(c + 0x224))
+                    extra += wheel_columns(p, c)
                     f.write("%.4f,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%s,%d,%s\n"
                             % (t, i, x, y, z, vx, vy, vz, prog, ctl, item, extra))
                     rows += 1
