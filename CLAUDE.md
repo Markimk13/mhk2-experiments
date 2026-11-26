@@ -17,14 +17,15 @@ notes; read the ones the task touches. This repository is **public**.
 
 No game files are in this repository. `.claude/sandbox/local.json` (ignored by git) names the
 original exe and the game data on this PC; `.claude/sandbox/tools/paths.py` reads it. On the
-user's PC those files sit in their game folders, which hold real records and phantoms.
+user's PC those files sit in `mhk2-originals/` (ignored by git), a copy taken from their game
+folders; the game folders themselves hold real records and phantoms.
 
 The manager program (`mhk2_manager`, github.com/Markimk13/mhk2_manager) is the user's own tool.
 
 ## Rules
 
-- Never change the user's game folders (the paths in `local.json`): they are real installs with
-  real records. Test in the sandbox, `.claude/sandbox/game` (a copy that git ignores;
+- Never change the user's game folders or `mhk2-originals/`: the game folders are real installs
+  with real records. Test in the sandbox, `.claude/sandbox/game` (a copy that git ignores;
   `py .claude\sandbox\tools\setup_sandbox.py` rebuilds it).
 - Commit and push only when the user says so.
 - Version (user, 2026-11-22, suffix 2026-11-23): a release has two digits and raises the second

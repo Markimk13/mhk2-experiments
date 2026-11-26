@@ -6,6 +6,8 @@ output/
 # never commit game files (the test fixtures below are the only exception)
 *.exe
 *.dat
+# the original game files on this PC (named by .claude/sandbox/local.json)
+mhk2-originals/
 __pycache__/
 *.pyc
 .idea/
