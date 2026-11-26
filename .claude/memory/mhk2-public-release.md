@@ -23,7 +23,9 @@ files moved into this one, without its history (first drafted on 2026-11-22, don
 - **Game files** are never committed (`.gitignore`: `*.exe`, `*.dat`, `output/`, `dist/`; the
   fixture `settings.dat` is the one exception). The sandbox finds them through
   `.claude/sandbox/local.json` (ignored), read by `.claude/sandbox/tools/paths.py`; on the user's
-  PC it points into their private repository's game folders.
+  PC it points into `mhk2-originals/` in this repository (ignored by git: the original exe,
+  `data/mhk2-00.dat`, `data/source/mhk2-01.dat`), copied there on 2026-11-26 from the private
+  repository's game folders, so that the private repository can be deleted after 1.10.
 - **Fixtures:** `fixtures/Phantom` holds the game's 24 original phantoms (from
   `data\Phantom\source`, where mhk2_manager keeps them; no player name, the developers' ids).
   `fixtures/settings.dat` is the user's save of 2026-11-18 with a second player name replaced by
