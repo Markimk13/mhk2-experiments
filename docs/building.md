@@ -63,7 +63,7 @@ py tools\patch_200cc.py "<game folder>\MHK2-XXL.exe" out
 - `--factor`, `--pull`, `--factor-250` and `--pull-250` change the gearing and the pull of
   200 cc and 250 cc.
 
-The [commands](../README.md#commands-unlock-the-classes-build-the-exe) that change
+The [commands](../README.md#commands-build-the-exe-unlock-the-classes) that change
 `settings.dat` use the same script: `--unlock`, `--unlock-tuning`, `--lock`, `--physics60` and
 `--player-name`.
 

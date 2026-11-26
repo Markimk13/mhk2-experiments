@@ -53,7 +53,7 @@ usual. It unlocks the next class or Meisterschaft 2 for the time after you switc
 
 The commands `--unlock` and `--unlock-tuning` also open the classes. They write the progress
 into `settings.dat`, so the switch cannot undo them. `--lock` locks the new classes again. See
-[Commands](../README.md#commands-unlock-the-classes-build-the-exe).
+[Commands](../README.md#commands-build-the-exe-unlock-the-classes).
 
 ## What 200 cc and 250 cc change
 

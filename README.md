@@ -39,7 +39,7 @@ You need an installed **Moorhuhn Kart 2 XXL**. The patch does not contain the ga
 | --- | --- |
 | `MHK2-XXL.exe` | The patched game |
 | `data\MK2\text-20.csv` | The new menu texts. Without this file, the new menu items show `**TEXT*NOT*FOUND***`. |
-| `tools\patch_200cc.py` | The patcher, for the [commands](#commands-unlock-the-classes-build-the-exe) below. It needs Python 3. |
+| `tools\patch_200cc.py` | The patcher, for the [commands](#commands-build-the-exe-unlock-the-classes) below. It needs Python 3. |
 
 There are two zips with the same game file:
 
@@ -64,14 +64,14 @@ Build the patched exe yourself from your original exe, for example from your cop
 py tools\patch_200cc.py "<original MHK2-XXL.exe>" out
 ```
 
-Requires [Python 3](https://www.python.org/downloads/).
-This writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`. Copy both into the game folder.
+The command needs [Python 3](https://www.python.org/downloads/).
+It writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`. Copy both into the game folder.
 More: [Building it yourself](docs/building.md#building-it-yourself).
 
 You do not need any commands to play. The switch *Alles freigeschaltet* in the options menu
 opens everything without a command (see [Unlocking](docs/engine-classes.md#unlocking-every-class)).
 
-If still wanted, run them in the game folder.
+The commands below need Python 3. Run them in the game folder.
 Close the game first, because the game writes `settings.dat` while it runs.
 
 Open 50 cc to 250 cc, each with Meisterschaft 2 and tracks 5 to 8:
