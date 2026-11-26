@@ -2,9 +2,29 @@
 dist/
 # builds of tools/patch_200cc.py
 out/
-# never commit game files
+output/
+# never commit game files (the test fixtures below are the only exception)
 *.exe
 *.dat
 __pycache__/
 *.pyc
 .idea/
+*.stackdump
+
+# Claude Code: worktrees and per-machine settings (notes and tools in .claude/ are tracked)
+.claude/worktrees/
+.claude/settings.local.json
+
+# Claude's sandbox (see .claude/README.md): the tools and the test fixtures are tracked, the
+# rest (game copy, disassembly, builds, test results, local.json with the game paths) is
+# rebuilt by .claude\sandbox\tools\setup_sandbox.py or is the output of test runs
+.claude/sandbox/*
+!.claude/sandbox/tools/
+!.claude/sandbox/fixtures/
+!.claude/sandbox/fixtures/settings.dat
+
+# personal preferences of the user, kept locally (CLAUDE.local.md describes them)
+CLAUDE.local.md
+.claude/hooks/gh_logout_reminder.py
+.claude/issues/
+.claude/sandbox/tools/issue_queue.py

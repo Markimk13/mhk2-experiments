@@ -28,6 +28,8 @@ It also adds a switch "60-FPS-Fahrphysik" to the options menu (off by default).
 The stock game derives the wheel springs from the length of the physics step,
 so above ~100 FPS the kart sags onto its chassis: it gets slower, slippery and
 hops. Switched on, the springs are always the ones the game has at 60 FPS.
+Above it a second switch, "Alles freigeschaltet" (off by default): while it is on, every class,
+championship and track is open; the progress won stays in settings.dat as it is.
 
 Phantom karts (ghosts) work without a helper program:
 
@@ -43,6 +45,7 @@ usage:
                                                          [--lang de|en] [--listing FILE]
     patch_200cc.py --unlock <settings.dat>      (open 50 cc to 250 cc with both championships)
     patch_200cc.py --unlock-tuning <settings.dat>   (the same and the tuning class)
+    patch_200cc.py --lock <settings.dat>        (lock 200 cc and up again)
     patch_200cc.py --physics60 on|off <settings.dat>   (same as the menu switch)
     patch_200cc.py --player-name NAME <settings.dat>   (name for new phantoms, max 12 characters)
 
@@ -58,31 +61,33 @@ import os
 import struct
 import sys
 
-# Version: the last release (PATCH_RELEASE, tagged v<release> in the repositories) and, behind
-# it, the number of commits since then (1.8.5 = the fifth commit after release 1.8); a release
-# itself has two digits and raises the second one (make_release.py builds with release=True).
-# After a release: set PATCH_RELEASE to it and tag that commit v<release>.
-PATCH_RELEASE = "1.8"
+# Version: the last release is PATCH_RELEASE (tagged v<release> in the repositories). Builds in
+# between carry the next release's number with "-preN" (1.10-pre5 = the fifth commit after
+# release 1.9); a release has two digits, raises the second one and drops the suffix
+# (make_release.py builds with release=True). After a release: set PATCH_RELEASE to it and tag
+# that commit v<release>.
+PATCH_RELEASE = "1.9"
 
 
 def patch_version(release=False):
-    """1.8.N while working (N = commits since tag v1.8, plus the one this build goes into), the
-    next release's number (1.9) with release=True. Only the private working repository (the one
-    with the sandbox in .claude) counts commits; a copy of this script anywhere else, such as the
-    public repository, builds the release number."""
+    """1.10-preN while working (the next release, N = commits since tag v1.9 plus the one this
+    build goes into), the plain release number (1.10) with release=True. Only a checkout of the
+    repository (the one with the sandbox in .claude) counts commits; a copy of this script
+    anywhere else, such as the one in the release zips, builds the release number."""
     major, minor = PATCH_RELEASE.split(".")
+    next_release = "%s.%d" % (major, int(minor) + 1)
     here = os.path.dirname(os.path.abspath(__file__))
     if release or not os.path.isdir(os.path.join(here, "..", ".claude", "sandbox")):
-        return "%s.%d" % (major, int(minor) + 1)
+        return next_release
     import subprocess
     try:
         out = subprocess.run(["git", "rev-list", "--count", "v%s..HEAD" % PATCH_RELEASE],
                              cwd=here, capture_output=True, text=True)
         if out.returncode == 0:
-            return "%s.%d" % (PATCH_RELEASE, int(out.stdout.strip()) + 1)
+            return "%s-pre%d" % (next_release, int(out.stdout.strip()) + 1)
     except OSError:
         pass
-    return PATCH_RELEASE + ".x"
+    return next_release + "-pre"
 
 
 PATCH_VERSION = patch_version(release=True)   # the next release: README / CHANGELOG and the release zips' names
@@ -92,7 +97,7 @@ IMAGE_BASE = 0x400000
 SECTION_NAME = b".mod200\0"
 SECTION_RVA = 0x4C0000          # == SizeOfImage of the original
 SECTION_RAW = ORIGINAL_SIZE     # appended at the end of the file
-SECTION_SIZE = 0x3000            # 12 KB since patch 1.10 (the "Am Limit" tables)
+SECTION_SIZE = 0x6000            # 24 KB since the learned driver tables (16 KB since the geometric driver)
 SIGNATURE_PREFIX = b"MHK2 200cc mod"
 TXT_VERSION = 305           # the main menu's version line
 # The two new classes pull harder than the stock ones (PULL: thrust and traction limit, the way
@@ -123,21 +128,34 @@ TUNE_ROWS = (
     (25, 200, 25, 100),         # Lenkung: largest steering angle
     (0, 800, 25, 100),          # Anpressdruck: downforce
     (25, 300, 25, 100),         # Schwerkraft: gravity of the physics world, for every kart and object
-    (-100, 200, 25, 100),       # Gegner "Tempo": the computer karts' throttle, above 100 their pull (see AI_CATCHUP)
-)
+    (-125, 200, 25, -125),      # Gegner "Tempo": the computer karts' throttle, above 100 their pull (see AI_CATCHUP);
+)                               # the lowest step is "Standard" (OPP_STANDARD), the class's own pace
 KART_ROWS = 7                   # the first seven values are on the page "Kart"
-PRESET_VALUES = 8               # the values a preset (built-in or own slot) holds: "Kart" and "Welt"
+PRESET_VALUES = 8               # the values of the tuning class, which a preset (built-in or own slot) holds: "Kart" and "Welt"
 ROW_GRAVITY, ROW_OPP = 8, 9     # rows of the pages "Welt" and "Gegner"
+# "Gegner" (patch 1.10: a page of its own behind the championship page, for every class; in 1.9 a
+# page of the tuning class, and "Tempo" a value of its presets) has two rows. "Tempo" is the ninth
+# value. The second row (patch 1.10): how many of the six computer karts drive the learned
+# way (the geometric driver's tables, see GEO_DRIVER and .claude/memory/mhk2-computer-kart-ai.md);
+# kart numbers 1..N do. Its dword follows the nine values, its line follows the nine in the rows
+# table. Neither is a value of a preset, and "Am Limit" counts neither.
+ROW_NEW = 10
+NEW_ROW = (0, 6, 1, 0)          # (minimum, maximum, step, default)
+OPP_STANDARD = TUNE_ROWS[ROW_OPP - 1][0]
+assert OPP_STANDARD == TUNE_ROWS[ROW_OPP - 1][3] == -125 and -128 <= OPP_STANDARD   # geo_driver.asm (TEMPOSTD), imm8
 # Computer karts: the game holds them back (throttle cap per class, rubber band, random strength
 # per kart; see .claude/memory/mhk2-computer-kart-ai.md); 200 cc, 250 cc and the tuning class use
 # the 150 cc row. Their throttle t becomes t + (1 - t) * g: g = 0 is the game's handicap, 1 is
-# full throttle all the time, as the player has. g of 200 cc and 250 cc; the tuning class takes
-# it from "Gegner" (percent), and there it goes further down: below 0 the throttle is t * (1 + g)
+# full throttle all the time, as the player has. g is "Tempo" of the page "Gegner" (percent), in
+# every class (patch 1.10; in 1.9 only the tuning class had it). "Standard" there is the class's
+# own g, OPP_CLASS_TEMPO: 0 from 50 to 150 cc (the game), AI_CATCHUP in 200 cc and 250 cc, and
+# 100 % in the tuning class. It goes further down: below 0 the throttle is t * (1 + g)
 # (-100 %: none above speed 10; below it the game gives full throttle, so they creep at 10).
 # More than full throttle does nothing (tried with 1.5 and 2.0 on 2026-11-22: the game caps it),
 # so above 100 % the computer karts get full throttle and Tempo / 100 times the pull instead
-# (thrust and traction limit, on top of "Motorkraft" and power-ups); the player's kart does not.
+# (thrust and traction limit, on top of the class's pull and power-ups); the player's kart does not.
 AI_CATCHUP = (0.5, 1.0)
+OPP_CLASS_TEMPO = (0, 0, 0) + tuple(int(round(100 * g)) for g in AI_CATCHUP) + (100,)
 # A computer kart that holds a power-up fires it when rand(800) is 0, checked at every update of
 # its controller, i.e. every frame: on average after 13 s at 60 FPS, but after 4 s at 200 FPS.
 # The patch scales the 800 by the frame time, so it is 800 at 60 FPS and the chance per second is
@@ -177,36 +195,59 @@ PAGE_TUNING = 0x1D              # menu page number (the game's own pages end at 
 PAGE_KART, PAGE_WORLD = 0x1F, 0x20
 PAGE_CLASS, PAGE_CHARACTER = 8, 6
 PAGE_OPP = 0x21
-# Items of the tuning page: 0 "Vorlage", 1 "Kart", 2 "Welt", 3 "Gegner", 4 "Zurücksetzen",
-# 5 "Eigene Vorlagen", 6 "Weiter", 7 "Zurück", 8 the "Am Limit" line, 9..11 the values of the three
+# Items of the tuning page: 0 "Vorlage", 1 "Kart", 2 "Welt", 3 "Zurücksetzen",
+# 4 "Eigene Vorlagen", 5 "Weiter", 6 "Zurück", 7 the "Am Limit" line, 8..9 the values of the two
 # groups, each under its button (the title is the last item).
 # Page "Kart": items 0..6 the kart values, 7 "Zurück"; page "Welt": item 0 "Schwerkraft",
-# 1 "Zurück"; page "Gegner": item 0 "Tempo", 1 "Zurück". Behind "Zurück" each of them has the
-# "Am Limit" line and then the explanation of the selected row. A "row" counts 0 "Vorlage", 1..9 the values.
-(TUNE_ITEM_KART, TUNE_ITEM_WORLD, TUNE_ITEM_OPP, TUNE_ITEM_RESET, TUNE_ITEM_OWN, TUNE_ITEM_NEXT,
- TUNE_ITEM_BACK) = range(1, 8)
-TUNE_Y_PRESET = 128
-TUNE_ITEM_GROUPS = 9            # items 9..11: the values of "Kart", "Welt", "Gegner"
-TUNE_Y_BUTTONS = (168, 250, 306, 420, 454, 490, 526)   # Kart, Welt, Gegner, Zurücksetzen, Eigene Vorlagen, Weiter, Zurück
-TUNE_Y_GROUPS = (200, 282, 338)                        # the values under "Kart", "Welt", "Gegner"
+# 1 "Zurück"; page "Gegner": items 0 "Tempo", 1 "Verbesserte Gegner", 2 "Zurück". Behind "Zurück"
+# each of them has the "Am Limit" line (empty on "Gegner") and then the explanation of the
+# selected row. A "row" counts 0 "Vorlage", 1..10 the values.
+(TUNE_ITEM_KART, TUNE_ITEM_WORLD, TUNE_ITEM_RESET, TUNE_ITEM_OWN, TUNE_ITEM_NEXT,
+ TUNE_ITEM_BACK) = range(1, 7)
+TUNE_Y_PRESET = 132
+TUNE_ITEM_GROUPS = 8            # items 8..9: the values of "Kart", "Welt"
+TUNE_Y_BUTTONS = (180, 268, 420, 454, 490, 526)        # Kart, Welt, Zurücksetzen, Eigene Vorlagen, Weiter, Zurück
+TUNE_Y_GROUPS = (212, 300)                             # the values under "Kart", "Welt"
 TUNE_Y0, TUNE_Y_STEP = 152, 33  # the value rows of the pages "Kart", "Welt" and "Gegner"
 TUNE_Y_BACK = 526
-TUNE_Y_INFO = {"kart": 444, "world": 290, "opp": 290}     # the explanation of the selected row
+TUNE_Y_INFO = {"kart": 444, "world": 290, "opp": 240}     # the explanation of the selected row
+# The championship page (0Ch; the game builds it anew in every frame): once the tuning class is
+# unlocked it gets a button "Gegner" behind its nine items that opens that page, and a small
+# line with the two values under it, as the tuning page has them under "Kart" and "Welt". For
+# the room the page gets two columns (user, 2026-11-24: "image on the left, the 4 track names on
+# the right ... as there will be added more Gegner settings later"): the championship row moves
+# to the top, the picture to the left, the track rows to its right. Stock: the picture at
+# (288, 130), 225 x 170 (the page is 800 x 600), the championship row at y 300, the tracks at
+# 350, 385, 420, 455 in the middle, the line at 505, "Starte Meisterschaft" at 510.
+PAGE_CHAMP = 0x0C
+CHAMP_ITEMS = 9                 # 0 championship, 1..4 tracks, 5 start, 6 back, 7 the line, 8 the title
+CHAMP_ITEM_START, CHAMP_ITEM_BACK, CHAMP_ITEM_OPP = 5, 6, 9      # item 10: the values under the button
+CHAMP_Y_CHAMP = 126
+CHAMP_PICTURE_STOCK = (288.0, 130.0, 225.0, 170.0)               # x, y, width, height
+CHAMP_PICTURE = (148.0, 170.0, 225.0, 170.0)
+CHAMP_X_TRACKS = 140.0          # the track rows' middle, from the middle of the page (the picture's is at -140)
+CHAMP_Y_TRACKS = (177, 215, 253, 291)
+CHAMP_Y_OPP, CHAMP_Y_OPP_VALUES = 356, 388
+# Menu::Draw pushes the picture's rectangle (height, width, y, x) at CHAMP_RECT_HOOK; esi = menu.
+CHAMP_RECT_HOOK, CHAMP_RECT_BACK = 0x004158E7, 0x004158FB
+CHAMP_RECT_ORIG = "68 00 00 2A 43 68 00 00 61 43 68 00 00 02 43 68 00 00 90 43"
+assert bytes.fromhex(CHAMP_RECT_ORIG) == b"".join(b"\x68" + struct.pack("<f", v) for v in reversed(CHAMP_PICTURE_STOCK))
 SUB_PAGES = ((PAGE_KART, 1, KART_ROWS + 1), (PAGE_WORLD, ROW_GRAVITY, ROW_GRAVITY + 1),
-             (PAGE_OPP, ROW_OPP, ROW_OPP + 1))   # page, first row, row behind the last
-# "Am Limit": a green line on the tuning page and its three detail pages for value sets that
+             (PAGE_OPP, ROW_OPP, ROW_NEW + 1))   # page, first row, row behind the last
+# "Am Limit": a green line on the tuning page and its two detail pages for value sets that
 # are far from the defaults in a way that makes the race harder, and that the game still handles
 # (patch 1.9; from 1.7 to 1.8 there were yellow warnings for three bad combinations instead).
 # Near the defaults, and past what works, the line stays empty. Found in races with computer
 # karts over many value sets (.claude/memory/mhk2-tuning-class.md, "Am Limit").
 # Each value v of row k is turned into x = log2 of its distance from the default (Anpressdruck
-# shifted by 25, Gegner by 150, so 0 % has a logarithm). A row gives every channel the points
+# shifted by 25, so 0 % has a logarithm). Up to 1.9 "Tempo" of "Gegner" counted too (a ninth row
+# and a channel "opp" times "power"); since 1.10 it is no value of the tuning class. A row gives every channel the points
 # SCALE * sum(slope * max(0, side * x - knot)) over its terms (side +1: above the default,
 # -1: below), rounded; the game reads these points from a table per row and grid step.
 # Channel "risk" gets the products of the pairs on top (each >> shift, only where the first
 # factor is positive; the second may be negative). The line shows text 1 when "push" >= PUSH_MIN and
 # "risk" < RISK_HARD, text 2 when RISK_HARD <= "risk" < RISK_MAX, else nothing.
-LIMIT_CHANNELS = ("risk", "push", "power", "gear", "opp", "mstab", "ustab")
+LIMIT_CHANNELS = ("risk", "push", "power", "gear", "mstab", "ustab")
 LIMIT_SCALE = 32            # points per unit
 UP, DOWN = 1, -1
 # "risk": what the computer karts' races showed (2026-11-22/23, about 1250 races of 45 s with six computer
@@ -214,13 +255,11 @@ UP, DOWN = 1, -1
 # like with the defaults, 1 one where the karts were clearly stuck, reset or in the air (airtime
 # share - 0.12 over 0.25, still seconds - 5 over 25, resets - 3 over 15, added up; extra over the
 # defaults on the same track). The weights are a ridge fit of that badness (tune_sweep_fit.py
-# emit() writes this table), none negative except in the products: Gegner above 100 % times
-# Motorkraft (the computer karts' pull is both multiplied); Motorkraft times "mstab" (much weight
+# emit() writes this table), none negative except in the products: Motorkraft times "mstab" (much weight
 # makes them stand up on their tails and lose the ground, downforce holds them down) and
 # Übersetzung times "ustab" (downforce helps at speed).
 # "push": how much harder the race gets, set by hand: faster, less grip, less steering and brakes,
-# an unusual gravity or weight and quicker opponents count; slower karts and opponents count
-# against it.
+# an unusual gravity or weight count; slower karts count against it.
 LIMIT_POINTS = (     # per row: channel -> terms (side, knot, slope)
     {"risk": ((UP, 0, 0.41), (UP, 0.75, 0.59)),
      "push": ((UP, 0, 1.0), (DOWN, 0, -1.0)),
@@ -244,32 +283,30 @@ LIMIT_POINTS = (     # per row: channel -> terms (side, knot, slope)
      "ustab": ((UP, 0, -0.18),)},   # Anpressdruck
     {"risk": ((UP, 0.75, 0.19), (DOWN, 0.75, 0.16), (DOWN, 1.5, 0.51)),
      "push": ((UP, 0, 0.5), (DOWN, 0, 0.5))},   # Schwerkraft
-    {"risk": ((UP, 0, 1.09),),
-     "push": ((UP, 0, 2.0), (DOWN, 0, -1.0)),
-     "opp": ((UP, 0, 0.35),)},   # Gegner
 )
-LIMIT_PAIRS = (("opp", "power", 5), ("power", "mstab", 5), ("gear", "ustab", 5))   # >> 5: / SCALE
-LIMIT_PUSH_MIN = 24         # 0.75: e.g. Übersetzung 2.65, Motorkraft 575 %, Haftung 50 %, Gegner 175 %
+assert len(LIMIT_POINTS) == PRESET_VALUES
+LIMIT_PAIRS = (("power", "mstab", 5), ("gear", "ustab", 5))   # >> 5: / SCALE
+LIMIT_PUSH_MIN = 24         # 0.75: e.g. Übersetzung 2.65, Motorkraft 575 %, Haftung 50 %
 LIMIT_RISK_HARD, LIMIT_RISK_MAX = 12, 24     # races there: badness 0.26 (7 % bad) / 0.42 (15 %) / 1.5 (62 %) beyond
 TXT_LIMIT = (224, 225)      # "Am Limit", "Hart am Limit", each with the points
 TXT_LIMIT_LOW, TXT_LIMIT_OVER = 306, 307     # the points alone: too little challenge / too much risk
 LIMIT_GREY, LIMIT_OVER_COLOR = "190 190 190 255", "255 140 90 255"
 LIMIT_COLORS = ("96 224 96 255", "40 255 40 255")
-TUNE_LIMIT_ITEM = {"tuning": 8, "kart": 8, "world": 2, "opp": 2}      # the label's item on each page
-TUNE_Y_LIMIT = {"tuning": 370, "kart": 384, "world": 220, "opp": 220}
+TUNE_LIMIT_ITEM = {"tuning": 7, "kart": 8, "world": 2, "opp": 3}      # the label's item on each page
+TUNE_Y_LIMIT = {"tuning": 352, "kart": 384, "world": 220, "opp": 236}
 
 
 def limit_x(k, v):
     """log2 distance of value v of row k from its default (see LIMIT_POINTS)."""
     d = TUNE_ROWS[k][3]
-    shift = 25 if k == 6 else 150 if k == ROW_OPP - 1 else 0
+    shift = 25 if k == 6 else 0
     return math.log2((v + shift) / (d + shift))
 
 
 def limit_table():
     """Points of every channel for every grid step of every row: [row][step] -> tuple."""
     tab = []
-    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS):
+    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS[:PRESET_VALUES]):
         rows = []
         for v in range(lo, hi + 1, step):
             x = limit_x(k, v)
@@ -284,10 +321,11 @@ def limit_table():
 
 
 def tune_limit(values):
-    """What the game computes: (level 0 / 1 / 2, risk, push) for nine values; mirrors tune_limit."""
+    """What the game computes: (level 0 / 1 / 2, risk, push) for the eight values (more are
+    ignored); mirrors tune_limit."""
     tab = limit_table()
     ch = [0] * len(LIMIT_CHANNELS)
-    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS):
+    for k, (lo, hi, step, _) in enumerate(TUNE_ROWS[:PRESET_VALUES]):
         idx = min(max(0, values[k] - lo) // step, (hi - lo) // step)
         for c, p in enumerate(tab[k][idx]):
             ch[c] += p
@@ -301,7 +339,7 @@ def tune_limit(values):
 
 
 def limit_line(values, lang="de", char=0):
-    """The line the tuning pages show for nine values (with its tags, and the top speed for the
+    """The line the tuning pages show for the eight values (with its tags, and the top speed for the
     character), as the game prints it."""
     level, risk, push = tune_limit(values)
     texts = dict(text_overrides(lang, "x", lines_only=True))
@@ -398,9 +436,9 @@ def top_kmh(values, char=0):
     return int(round(top_speed(values, char) * TOP_KMH))
 
 
-# Built-in presets of the "Vorlage" row: name and the nine values in the order of TUNE_ROWS.
-# "Tempo" of the class copies: 150 cc's computer karts are what 0 % gives; 50 cc's drive at
-# 0.7 / 0.9 of that, about -25 %; 100 cc's at 0.8 / 0.9, nearer 0 % than -25 %.
+# Built-in presets of the "Vorlage" row: name and the eight values in the order of TUNE_ROWS.
+# (Up to 1.9 a ninth value, "Tempo" of "Gegner": 50 cc -25, 100 cc and 150 cc 0, 200 cc 50,
+# Hetzjagd 200, the others 100. Since 1.10 "Tempo" is set on the page "Gegner" for every class.)
 # Left / right on the row copies the previous / next one into the values. The row shows the
 # first preset that equals the values, or "Ungespeichert". The classes' gearing (1.468, 1.545)
 # does not fit two decimals, so their copies read 1.47 and 1.55.
@@ -410,33 +448,33 @@ def top_kmh(values, char=0):
 # 1.9 also dropped "Dragster" (no variant of it raced well) and added Bremsversagen, Federleicht,
 # Hetzjagd and Mondrakete, found the same way.
 TUNE_PRESETS = (
-    ("50 cc",         (90, 100, 100, 100, 100, 100, 100, 100, -25)),
-    ("100 cc",        (110, 100, 100, 100, 100, 100, 100, 100, 0)),
-    ("150 cc",        (130, 100, 100, 100, 100, 100, 100, 100, 0)),
-    ("200 cc",        (147, 150, 100, 100, 100, 100, 100, 100, 50)),
-    ("250 cc",        (155, 200, 100, 100, 100, 100, 100, 100, 100)),   # = the defaults
-    ("Rakete",        (345, 325, 250, 100, 400, 200, 250, 100, 100)),
-    ("Formel 1",      (360, 300, 200, 100, 400, 200, 350, 100, 100)),
-    ("Rallye",        (180, 325, 50, 75, 100, 125, 100, 100, 100)),
-    ("Glatteis",      (155, 200, 50, 100, 75, 125, 75, 100, 100)),
-    ("Bremsversagen", (265, 250, 100, 100, 25, 100, 325, 100, 100)),
-    ("Schwergewicht", (155, 250, 100, 250, 250, 100, 200, 100, 100)),
-    ("Federgewicht",  (155, 100, 100, 50, 100, 100, 100, 100, 100)),
-    ("Federleicht",   (290, 325, 175, 25, 100, 100, 175, 150, 100)),
-    ("Hetzjagd",      (175, 275, 150, 100, 100, 100, 100, 100, 200)),
-    ("Schnecke",      (50, 100, 100, 100, 100, 100, 100, 100, 100)),
-    ("Wahnsinn",      (315, 350, 50, 25, 25, 100, 275, 300, 100)),
-    ("Mondfahrt",     (155, 200, 100, 100, 100, 100, 100, 25, 100)),
-    ("Mondrakete",    (360, 325, 175, 100, 100, 200, 350, 50, 100)),
-    ("Jupiter",       (155, 200, 100, 100, 100, 100, 100, 250, 100)),
+    ("50 cc",         (90, 100, 100, 100, 100, 100, 100, 100)),
+    ("100 cc",        (110, 100, 100, 100, 100, 100, 100, 100)),
+    ("150 cc",        (130, 100, 100, 100, 100, 100, 100, 100)),
+    ("200 cc",        (147, 150, 100, 100, 100, 100, 100, 100)),
+    ("250 cc",        (155, 200, 100, 100, 100, 100, 100, 100)),   # = the defaults
+    ("Rakete",        (345, 325, 250, 100, 400, 200, 250, 100)),
+    ("Formel 1",      (360, 300, 200, 100, 400, 200, 350, 100)),
+    ("Rallye",        (180, 325, 50, 75, 100, 125, 100, 100)),
+    ("Glatteis",      (155, 200, 50, 100, 75, 125, 75, 100)),
+    ("Bremsversagen", (265, 250, 100, 100, 25, 100, 325, 100)),
+    ("Schwergewicht", (155, 250, 100, 250, 250, 100, 200, 100)),
+    ("Federgewicht",  (155, 100, 100, 50, 100, 100, 100, 100)),
+    ("Federleicht",   (290, 325, 175, 25, 100, 100, 175, 150)),
+    ("Hetzjagd",      (175, 275, 150, 100, 100, 100, 100, 100)),
+    ("Schnecke",      (50, 100, 100, 100, 100, 100, 100, 100)),
+    ("Wahnsinn",      (315, 350, 50, 25, 25, 100, 275, 300)),
+    ("Mondfahrt",     (155, 200, 100, 100, 100, 100, 100, 25)),
+    ("Mondrakete",    (360, 325, 175, 100, 100, 200, 350, 50)),
+    ("Jupiter",       (155, 200, 100, 100, 100, 100, 100, 250)),
 )
 TUNE_PRESET_DEFAULT = 4         # "250 cc"
-# The first eight values fill the names of rank 4 and 5; "Gegner" (patch 1.9) is the character of
-# rank 1 (+0A0h), the marker that of rank 5 (+0B0h).
+# The first eight values fill the names of rank 4 and 5; "Tempo" of "Gegner" (patch 1.9) is the
+# character of rank 1 (+0A0h), the marker that of rank 5 (+0B0h).
 assert TUNE_VALUES + 4 * PRESET_VALUES == TUNE_MARK - 0x10 and TUNE_VALUES + 4 * len(TUNE_ROWS) <= TUNE_MARK
 assert len(TUNE_ROWS) == ROW_OPP and PRESET_VALUES == ROW_GRAVITY
-assert TUNE_PRESETS[TUNE_PRESET_DEFAULT][1] == tuple(row[3] for row in TUNE_ROWS)
-assert all(len(vals) == len(TUNE_ROWS) for _, vals in TUNE_PRESETS)
+assert TUNE_PRESETS[TUNE_PRESET_DEFAULT][1] == tuple(row[3] for row in TUNE_ROWS[:PRESET_VALUES])
+assert all(len(vals) == PRESET_VALUES for _, vals in TUNE_PRESETS)
 assert all(lo <= v <= hi for _, vals in TUNE_PRESETS for v, (lo, hi, _, _) in zip(vals, TUNE_ROWS))
 assert len({vals for _, vals in TUNE_PRESETS}) == len(TUNE_PRESETS)   # the row could not tell two apart
 # Own presets ("Eigene Vorlagen", menu page 1Eh): eight slots in two more highscore entries the
@@ -467,12 +505,34 @@ PRESETS_18 = 16                 # ... and in 1.7 / 1.8 (a save without OPP_MARK 
 OPP_MARK = TUNE_LAST + 4
 OPP_MAGIC = 0x4E474547          # "GEGN"
 INFO_SHOWN = OPP_MARK + 4       # the item whose explanation a detail page shows (-1: none yet)
-# "Tempo" of the own slots (a slot's 20h bytes are full): eight words, then a marker; a save
-# without the marker gets 100 % in every slot once.
+# "Tempo" of the own slots in 1.9 (a slot's 20h bytes are full): eight words, then a marker.
+# Unused since 1.10 ("Tempo" is no value of a preset any more); the 14h bytes stay where they are.
 OWN_OPP = INFO_SHOWN + 4
 OWN_OPP_MARK = OWN_OPP + 2 * OWN_SLOTS
 OWN_OPP_MAGIC = 0x5350504F      # "OPPS"
-assert OWN_OPP_MARK + 4 <= TUNE_VALUES - 0x80  # entry 62 (the tuning values' entry) starts at 2DCCh
+# Patch 1.10 added the second row of "Gegner" behind the nine values (the character of rank 2,
+# +0A4h); a save without this marker gets its default once.
+NEW_VALUE = TUNE_VALUES + 4 * (ROW_NEW - 1)
+NEW_MARK = OWN_OPP_MARK + 4
+NEW_MAGIC = 0x4757454E          # "NEWG"
+OPP_VALUE = TUNE_VALUES + 4 * (ROW_OPP - 1)
+assert NEW_VALUE == 0x2E70 and OPP_VALUE == 0x2E6C      # geo_driver.asm reads them (NEWV, TEMPOV)
+assert NEW_VALUE + 4 <= TUNE_MARK and ROW_NEW == len(TUNE_ROWS) + 1
+# Patch 1.10 moved "Gegner" out of the tuning class: its two values apply in every class, and
+# "Tempo" got the step "Standard". A save without this marker gets "Standard" once (its "Tempo"
+# was the tuning class's). Whoever reads the two values checks the marker first: without it
+# they are "Standard" and 0 (a save the tuning pages never saw holds character numbers there).
+STD_MARK = NEW_MARK + 4
+STD_MAGIC = 0x47445453          # "STDG"
+assert STD_MARK == 0x2D98       # geo_driver.asm reads it (STDM, STDMAGIC)
+assert STD_MARK + 4 <= TUNE_VALUES - 0x80      # entry 62 (the tuning values' entry) starts at 2DCCh
+# The switch "Alles freigeschaltet" of the options menu (patch 1.10): on while this dword holds
+# the magic. It only changes what the menus and the track lock read (unlock_level, unlock_test);
+# the progress itself (gp+0FD08h, gp+0FD0Ch) stays as won, and a championship won while the
+# switch is on still counts.
+UNLOCK_MARK = STD_MARK + 4
+UNLOCK_MAGIC = 0x49455246       # "FREI"
+assert UNLOCK_MARK + 4 <= TUNE_VALUES - 0x80
 PRESETS_ALL = len(TUNE_PRESETS) + OWN_SLOTS    # numbers of the "Vorlage" row: built-in, then own slots
 PAGE_OWN = 0x1E
 PAGE_NAME = 0x13                # the game's name entry page; renames a slot while OWN_FLAG is set
@@ -527,6 +587,8 @@ STR_MENU_BACK = 0x00597570     # "menu back"
 STR_MENU_SELECT = 0x00595F1C   # "menu select"
 STR_MENU_LEFT = 0x00596D4C     # "menu left"
 STR_MENU_RIGHT = 0x00596D40    # "menu right"
+STR_MENU_UP = 0x00596B44       # "menu up"
+STR_MENU_DOWN = 0x00596B38     # "menu down"
 STR_PHANTOM_FMT = 0x00595EF8   # "data\Phantom\phantom-%d-%02d.mhk2"
 STR_NEW_PHANTOM = 0x00595F3C   # "data\Phantom\new-phantom.mhk2"
 VERSION_STRING = 0x005C38B8    # "V1.0": the first bytes of every phantom header (writable)
@@ -576,9 +638,14 @@ TXT_HINT = 0x156           # 342: the hint's new place
 TXT_TUNE_TITLE = 0xF0      # 240: title of the tuning page (233..269 are unused in text.csv)
 TXT_TUNE_ROW0 = 0xF1       # 241..247: the seven kart rows (rows 1..7: 240 + row), as wsprintf formats
 TXT_TUNE_ROW8 = 0xE9       # 233: "Schwerkraft" (row 8)
-TXT_OPP_BUTTON, TXT_OPP_TITLE, TXT_OPP_ROW, TXT_OPP_INFO = 343, 344, 345, 346   # the page "Gegner" (row 9)
-TXT_GROUP_TEXTS = (347, 349, 355)      # the tuning page's values of "Kart", "Welt", "Gegner"
-TXT_INFO = (293, 294, 295, 296, 297, 298, 299, 289, TXT_OPP_INFO)   # explanation of rows 1..9
+TXT_CHAMP_OPP, TXT_OPP_TITLE, TXT_OPP_ROW, TXT_OPP_INFO = 343, 344, 345, 346   # the championship page's button, the page "Gegner" (row 9)
+TXT_CHAMP_OPP_VALUES = 319  # ... and the small line under the button
+TXT_OPP_ROW_STD = 355       # row 9 at its lowest step: "Tempo: Standard"
+TXT_OPP_VALUES, TXT_OPP_VALUES_STD = 308, 309     # the two values of "Gegner" in one line, the second with "Standard"
+TXT_PAUSE_OPP = (317, 318)  # ... on the pause page: behind the top speed, in the tuning class / in the others
+TXT_GROUP_TEXTS = (347, 349)           # the tuning page's values of "Kart", "Welt"
+TXT_NEW_ROW, TXT_NEW_INFO = 356, 357   # the second row of "Gegner" (row 10); 350..354 and 358.. are the game's
+TXT_INFO = (293, 294, 295, 296, 297, 298, 299, 289, TXT_OPP_INFO, TXT_NEW_INFO)   # explanation of rows 1..10
 TXT_TUNING_HIDDEN = 348    # empty: the class menu's tuning row before the class is unlocked
 TXT_TUNING_UNLOCKED = 589  # "tuning class unlocked" (584 + 4 would be 588, taken by 250 cc)
 MAIN_Y_VERSION = 540       # the version line under the main menu's buttons (the last one, "Beenden", is at 470)
@@ -604,7 +671,7 @@ assert TXT_TUNE_PRESET16 + len(TUNE_PRESETS) - 16 <= TXT_TUNE_ROW8 - 4    # 229 
 def preset_text_id(n):
     """Text id of the name of built-in preset n."""
     return TXT_TUNE_PRESET0 + n if n < 16 else TXT_TUNE_PRESET16 + n - 16
-assert len(TUNE_ROWS) == 9          # rows 10.. would need text ids of their own
+assert len(TUNE_ROWS) == 9          # rows 10.. would need text ids of their own (row 10: TXT_NEW_ROW)
 TXT_PAUSE_PLAIN, TXT_PAUSE_TUNING = 238, 239     # the pause page's line: class, (preset,) switch
 TXT_PAUSE_VALUES = 229     # ... and the tuning values below it
 TXT_CLASS0 = 332           # class names: 332 + class (335..337 are the patch's)
@@ -626,14 +693,21 @@ MENU_Y_HINT = 464          # "win both championships first" hint
 MENU_Y_BACK = 526
 TXT_PHYS_LABEL = 0xDD      # 221: heading of the new options entry (221..229 are unused in text.csv)
 TXT_PHYS_OFF = 0xDE        # 222: its value while off; "on" is the next id
+TXT_UNLOCK_LABEL = 288    # heading of the switch "Alles freigeschaltet" (its values are 222 / 223)
 TXT_BACK_OPTIONS = 0xD9    # 217: the options menu's own "Zurück"
 # options menu rows; the stock page uses 160/200, 250/290, 350, 410/450, 520
-OPTIONS_Y = (128, 166, 210, 248, 296, 344, 382)   # music, effects, resolution, quality
+OPTIONS_Y = (118, 152, 194, 228, 272, 316, 350)   # music, effects, resolution, quality
 OPTIONS_Y_STOCK = (160, 200, 250, 290, 350, 410, 450)
-OPTIONS_Y_PHYS_LABEL = 426
-OPTIONS_Y_PHYS_VALUE = 464
-OPTIONS_Y_BACK = 526
-OPTIONS_ITEM_PHYS = 8      # items 0..6 as before, 7 heading, 8 value, 9 "Zurück"
+OPTIONS_Y_UNLOCK_LABEL = 392
+OPTIONS_Y_UNLOCK_VALUE = 426
+OPTIONS_Y_PHYS_LABEL = 468
+OPTIONS_Y_PHYS_VALUE = 502
+OPTIONS_Y_BACK = 548
+# items 0..6 as before, 7 / 8 "Alles freigeschaltet" (heading, value), 9 / 10 the physics switch,
+# 11 "Zurück"
+OPTIONS_ITEM_UNLOCK = 8
+OPTIONS_ITEM_PHYS = 10
+OPTIONS_ITEM_BACK = 11
 MENU_ITEM_SIZE = 0x54
 
 TXT_GROUP = "<color 255 170 0 255>%s</color>"     # "Kart:" / "Welt:" / "Gegner:" in the values text
@@ -644,6 +718,7 @@ TXT_GROUP = "<color 255 170 0 255>%s</color>"     # "Kart:" / "Welt:" / "Gegner:
 TEXTS = {
     "de": {
         "phys": "60-FPS-Fahrphysik", "off": "Aus", "on": "An", "tuning": "Tuning",
+        "unlock_all": "Alles freigeschaltet",
         "rows": ("Übersetzung", "Motorkraft", "Haftung", "Gewicht", "Bremsen", "Lenkung",
                  "Anpressdruck", "Schwerkraft"),
         "limit": ("Am Limit: extrem, aber noch fahrbar", "Hart am Limit: gerade noch fahrbar"),
@@ -660,10 +735,14 @@ TEXTS = {
         "unlock": "Du hast die %s Meisterschaft<br>in der %scc-Klasse freigeschaltet!",
         "first": "erste", "second": "zweite",
         "tuning_unlocked": "Du hast die Tuning-Klasse freigeschaltet!",
-        "opp": "Gegner", "opp_row": "Tempo", "class": "Klasse", "top": "Top speed:", "top_about": "ca. %d km/h",
-        "opp_info": "Wie schnell fahren die Computer-Karts?<br>-100 %: Schritttempo, 0 %: wie in 150 cc"
-                    "<br>50 %: wie in 200 cc, 100 %: wie in 250 cc (Vollgas wie Du)"
-                    "<br>über 100 %: Vollgas und mehr Motorkraft als Du",
+        "opp": "Gegner", "opp_row": "Tempo", "std": "Standard", "class": "Klasse", "top": "Top speed:", "top_about": "ca. %d km/h",
+        "new_row": "Verbesserte Gegner", "new_short": "verbessert",
+        "new_info": "Wie viele der sechs Computer-Karts fahren die<br>gelernte Linie? Sie bremsen vor Kurven und"
+                    "<br>kommen seltener von der Strecke ab. 0: wie im Spiel",
+        "opp_info": "Wie schnell fahren die Computer-Karts?"
+                    "<br>Standard: bis 150 cc 0 %, 200 cc 50 %, ab 250 cc 100 %"
+                    "<br>0 %: gebremst wie im Spiel, 100 %: Vollgas wie Du"
+                    "<br>über 100 %: mehr Motorkraft als Du, -100 %: Schritttempo",
         "info": ("Länge der Übersetzung, wie der Faktor einer Klasse:<br>länger: höhere Höchstgeschwindigkeit."
                  "<br>150 cc: 1.30, 200 cc: 1.47, 250 cc: 1.55",
                  "Schub des Motors, und wie viel davon die Reifen<br>auf die Straße bringen."
@@ -681,6 +760,7 @@ TEXTS = {
     },
     "en": {
         "phys": "60 FPS driving physics", "off": "Off", "on": "On", "tuning": "Tuning",
+        "unlock_all": "Everything unlocked",
         "rows": ("Gearing", "Engine power", "Grip", "Weight", "Brakes", "Steering",
                  "Downforce", "Gravity"),
         "limit": ("Pushing the limits: still raceable", "Right at the limit: only just raceable"),
@@ -700,10 +780,14 @@ TEXTS = {
         "unlock": "You have unlocked the %s championship<br>in the %scc class!",
         "first": "first", "second": "second",
         "tuning_unlocked": "You have unlocked the tuning class!",
-        "opp": "Opponents", "opp_row": "Pace", "class": "Class", "top": "Top speed:", "top_about": "about %d km/h",
-        "opp_info": "How fast do the computer karts drive?<br>-100 %: walking pace, 0 %: as in 150 cc"
-                    "<br>50 %: as in 200 cc, 100 %: as in 250 cc (full throttle, like you)"
-                    "<br>above 100 %: full throttle and more engine power than you",
+        "opp": "Opponents", "opp_row": "Pace", "std": "default", "class": "Class", "top": "Top speed:", "top_about": "about %d km/h",
+        "new_row": "Improved opponents", "new_short": "improved",
+        "new_info": "How many of the six computer karts drive the<br>learned line? They brake before corners and"
+                    "<br>leave the track less often. 0: as in the game",
+        "opp_info": "How fast do the computer karts drive?"
+                    "<br>Default: up to 150 cc 0 %, 200 cc 50 %, from 250 cc 100 %"
+                    "<br>0 %: held back as in the game, 100 %: full throttle like you"
+                    "<br>above 100 %: more engine power than you, -100 %: walking pace",
         "info": ("Length of the gearing, like the factor of a class:<br>longer: higher top speed."
                  "<br>150 cc: 1.30, 200 cc: 1.47, 250 cc: 1.55",
                  "Thrust of the engine, and how much of it the tyres<br>put on the road."
@@ -739,6 +823,7 @@ def text_overrides(lang="de", version=None, lines_only=False):
               + TXT_GROUP % (t["world"] + ":") + " %s %%d %%%%" % r[7])
     lines = [
         (221, title % t["phys"]), (222, t["off"]), (223, t["on"]),
+        (TXT_UNLOCK_LABEL, title % t["unlock_all"]),
         (240, title % t["tuning"]),
         (TXT_TUNE_ROW0, r[0] + ": %d.%02d"),
     ] + [(n, row[n] + ": %d %%") for n in range(TXT_TUNE_ROW0 + 1, TXT_TUNE_ROW0 + 7)] + [
@@ -756,21 +841,25 @@ def text_overrides(lang="de", version=None, lines_only=False):
         (TXT_OWN_DEFAULT, t["own_default"] + " %d"),
         (266, title % t["own"]), (267, t["own"]),
         (268, t["slot"] + " %d: %s"),
-        (269, values + "<br>" + TXT_GROUP % (t["opp"] + ":") + " %s %%d %%%%</scale>" % t["opp_row"]),
+        (269, values + "</scale>"),
         (TXT_GROUP_TEXTS[0], "<scale 0.6>%s %%d.%%02d, %s %%d %%%%, %s %%d %%%%,<br>" % r[0:3]
          + "%s %%d %%%%, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%</scale>" % r[3:7]),
         (TXT_GROUP_TEXTS[1], "<scale 0.6>%s %%d %%%%</scale>" % r[7]),
-        (TXT_GROUP_TEXTS[2], "<scale 0.6>%s %%d %%%%</scale>" % t["opp_row"]),
+        (TXT_OPP_VALUES, "%s %%d %%%%, %s %%d" % (t["opp_row"], t["new_short"])),
+        (TXT_OPP_VALUES_STD, "%s %s, %s %%d" % (t["opp_row"], t["std"], t["new_short"])),
+        (TXT_CHAMP_OPP, t["opp"]),
+        (TXT_CHAMP_OPP_VALUES, "<scale 0.6>%s</scale>"),
+        (TXT_PAUSE_OPP[0], "<scale 0.5>, %s %%s</scale>" % (TXT_GROUP % (t["opp"] + ":"))),
+        (TXT_PAUSE_OPP[1], "<scale 0.6>, %s %%s</scale>" % (TXT_GROUP % (t["opp"] + ":"))),
         (271, "<scale 0.6>%s</scale>" % t["empty"]),
         (TXT_PAUSE_PLAIN, "<scale 0.6>%s %%s, %s %%s</scale>" % (TXT_GROUP % (t["class"] + ":"),
                                                                     TXT_GROUP % (t["phys"] + ":"))),
         (TXT_PAUSE_TUNING, "<scale 0.6>%s %%s, %s %%s, %s %%s</scale>" % (
             TXT_GROUP % (t["class"] + ":"), TXT_GROUP % (t["preset"] + ":"), TXT_GROUP % (t["phys"] + ":"))),
         (TXT_PAUSE_VALUES, "<scale 0.5>%s %%d.%%02d, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%,<br>" % r[0:4]
-         + "%s %%d %%%%, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%<br>" % r[4:8]
-         + TXT_GROUP % (t["opp"] + ":") + " %s %%d %%%%</scale>" % t["opp_row"]),
+         + "%s %%d %%%%, %s %%d %%%%, %s %%d %%%%, %s %%d %%%%</scale>" % r[4:8]),
         (TXT_TOP, "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
-        (TXT_TOP_PAUSE[0], "<scale 0.5>, %s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
+        (TXT_TOP_PAUSE[0], "<scale 0.5><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (TXT_SPEED, "<scale 0.75>%d km/h</scale>"),
         (TXT_TOP_PAUSE[1], "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (272, t["load"]), (273, t["save"]), (274, t["rename"]), (275, t["delete"]),
@@ -780,9 +869,12 @@ def text_overrides(lang="de", version=None, lines_only=False):
         (338, "<color 128 128 128 255>200 cc</color>"),
         (339, "<color 128 128 128 255>250 cc</color>"),
         (342, "<font 30px_redoutline><scale 0.5>%s</scale></font>" % t["hint"]),
-        (TXT_OPP_BUTTON, t["opp"]), (TXT_OPP_TITLE, title % t["opp"]),
+        (TXT_OPP_TITLE, title % t["opp"]),
         (TXT_OPP_ROW, t["opp_row"] + ": %d %%"),
+        (TXT_OPP_ROW_STD, t["opp_row"] + ": " + t["std"]),
         (TXT_OPP_INFO, "<scale 0.6>%s</scale>" % t["opp_info"]),
+        (TXT_NEW_ROW, t["new_row"] + ": %d"),
+        (TXT_NEW_INFO, "<scale 0.6>%s</scale>" % t["new_info"]),
     ] + [(TXT_INFO[n], "<scale 0.6>%s</scale>" % text) for n, text in enumerate(t["info"])] + [
         (TXT_TUNING_HIDDEN, ""),
         (583, t["unlock"] % (t["second"], "200")),
@@ -797,14 +889,17 @@ def text_overrides(lang="de", version=None, lines_only=False):
     assert len({n for n, _ in lines}) == len(lines)
     # the longest values lines must fit their buffers
     longest = dict(lines)
-    widest = (400, 1000, 400, 400, 400, 200, 800, 300, 100)
+    widest = (400, 1000, 400, 400, 400, 200, 800, 300)
+    opp_widest = max((longest[TXT_OPP_VALUES] % (-100, 6), longest[TXT_OPP_VALUES_STD] % 6), key=len)
+    assert len(opp_widest) < 0x40 and len(longest[TXT_CHAMP_OPP_VALUES] % opp_widest) < 0x80
     assert len(longest[269].replace("%d.%02d", "4.00") % widest[1:]) < OWN_VALUES_BUF
-    assert len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) < OWN_VALUES_BUF
     assert len(longest[TXT_GROUP_TEXTS[0]].replace("%d.%02d", "4.00") % widest[1:7]) < 0x100
     assert all(len(longest[n] % (999, 999)) + len(longest[TXT_TOP] % 999) < 0x100
                for n in TXT_LIMIT + (TXT_LIMIT_LOW, TXT_LIMIT_OVER))
-    assert len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999) < OWN_VALUES_BUF
-    assert len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999) < 0x100
+    assert (len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999)
+            + len(longest[TXT_PAUSE_OPP[0]] % opp_widest) < OWN_VALUES_BUF)
+    assert (len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999)
+            + len(longest[TXT_PAUSE_OPP[1]] % opp_widest) < OWN_VALUES_BUF)
     if lines_only:
         return lines
     return ("# Moorhuhn Kart 2 - 200 cc / 250 cc / tuning mod. The game merges this file over text.csv.\r\n"
@@ -895,6 +990,1036 @@ def _imm(value):
         return "%d" % value
     text = "%X" % value
     return ("0" if text[0] in "ABCDEF" else "") + text + "h"
+
+
+# The computer karts' geometric driver: written in MASM (.claude/sandbox/tools/geo_driver.asm,
+# where its working is explained) and turned into this table by asm2py.py. Hooked at GEO_HOOK.
+GEO_HOOK, GEO_HOOK_ORIG = 0x0043A9EA, "8B 4E 10 C7 44 24 14 00 00 00 00"
+GEO_LINE_HOOK, GEO_LINE_ORIG = 0x00439596, "89 7C 24 18 8D 9B 00 00 00 00"
+# >>> GEO_DRIVER
+# generated by .claude/sandbox/tools/asm2py.py from geo_driver.asm; do not edit by hand
+GEO_DRIVER = (
+    (0x0000, '60', 'pushad', None),
+    (0x0001, '81 EC 14 01 00 00', 'sub         esp,114h', None),
+    (0x0007, 'E8 00 00 00 00', 'call        %08X', ('local', 12)),
+    (0x000C, '5B', 'pop         ebx', None),
+    (0x000D, 'E8 00 00 00 00', 'call', ('ext', 4208528)),
+    (0x0012, '8B D0', 'mov         edx,eax', None),
+    (0x0014, '89 84 24 0C 01 00 00', 'mov         dword ptr [esp+0000010Ch],eax', None),
+    (0x001B, '8B 40 10', 'mov         eax,dword ptr [eax+10h]', None),
+    (0x001E, '83 F8 05', 'cmp         eax,5', None),
+    (0x0021, '0F 87 E8 04 00 00', 'ja          %08X', ('local', 1295)),
+    (0x0027, '0F B6 8C 03 A6 0A 00 00', 'movzx       ecx,byte ptr [ebx+eax+00000AA6h]', None),
+    (0x002F, '85 C9', 'test        ecx,ecx', None),
+    (0x0031, '0F 84 D8 04 00 00', 'je          %08X', ('local', 1295)),
+    (0x0037, '8B 7E 10', 'mov         edi,dword ptr [esi+10h]', None),
+    (0x003A, '89 7C 24 3C', 'mov         dword ptr [esp+3Ch],edi', None),
+    (0x003E, '8B 87 04 03 00 00', 'mov         eax,dword ptr [edi+00000304h]', None),
+    (0x0044, '83 F8 06', 'cmp         eax,6', None),
+    (0x0047, '76 02', 'jbe         %08X', ('local', 75)),
+    (0x0049, '33 C0', 'xor         eax,eax', None),
+    (0x004B, '83 F9 02', 'cmp         ecx,2', None),
+    (0x004E, '75 23', 'jne         %08X', ('local', 115)),
+    (0x0050, '8B C8', 'mov         ecx,eax', None),
+    (0x0052, '85 C9', 'test        ecx,ecx', None),
+    (0x0054, '75 01', 'jne         %08X', ('local', 87)),
+    (0x0056, '41', 'inc         ecx', None),
+    (0x0057, '81 BA 98 2D 00 00 53 54 44 47', 'cmp         dword ptr [edx+00002D98h],47445453h', None),
+    (0x0061, '0F 85 A8 04 00 00', 'jne         %08X', ('local', 1295)),
+    (0x0067, '3B 8A 70 2E 00 00', 'cmp         ecx,dword ptr [edx+00002E70h]', None),
+    (0x006D, '0F 8F 9C 04 00 00', 'jg          %08X', ('local', 1295)),
+    (0x0073, '6B C0 7C', 'imul        eax,eax,7Ch', None),
+    (0x0076, '8D AC 03 AE 0A 00 00', 'lea         ebp,[ebx+eax+00000AAEh]', None),
+    (0x007D, '83 7D 2C 00', 'cmp         dword ptr [ebp+2Ch],0', None),
+    (0x0081, '0F 84 88 04 00 00', 'je          %08X', ('local', 1295)),
+    (0x0087, '8B 87 04 03 00 00', 'mov         eax,dword ptr [edi+00000304h]', None),
+    (0x008D, 'E8 ED 05 00 00', 'call        %08X', ('local', 1663)),
+    (0x0092, '89 84 24 08 01 00 00', 'mov         dword ptr [esp+00000108h],eax', None),
+    (0x0099, '8B CF', 'mov         ecx,edi', None),
+    (0x009B, 'E8 00 00 00 00', 'call', ('ext', 4378192)),
+    (0x00A0, 'D9 94 24 50 01 00 00', 'fst         dword ptr [esp+00000150h]', None),
+    (0x00A7, 'D9 5C 24 10', 'fstp        dword ptr [esp+10h]', None),
+    (0x00AB, 'E8 00 00 00 00', 'call', ('ext', 4200432)),
+    (0x00B0, '8B 48 1C', 'mov         ecx,dword ptr [eax+1Ch]', None),
+    (0x00B3, '89 4C 24 28', 'mov         dword ptr [esp+28h],ecx', None),
+    (0x00B7, 'E8 00 00 00 00', 'call', ('ext', 4470768)),
+    (0x00BC, 'D9 5C 24 14', 'fstp        dword ptr [esp+14h]', None),
+    (0x00C0, 'D9 44 24 10', 'fld         dword ptr [esp+10h]', None),
+    (0x00C4, 'D8 4D 04', 'fmul        dword ptr [ebp+4]', None),
+    (0x00C7, 'D9 45 00', 'fld         dword ptr [ebp]', None),
+    (0x00CA, 'D8 D1', 'fcom        st(1)', None),
+    (0x00CC, 'DF E0', 'fnstsw      ax', None),
+    (0x00CE, 'F6 C4 01', 'test        ah,1', None),
+    (0x00D1, '75 04', 'jne         %08X', ('local', 215)),
+    (0x00D3, 'DD D9', 'fstp        st(1)', None),
+    (0x00D5, 'EB 02', 'jmp         %08X', ('local', 217)),
+    (0x00D7, 'DD D8', 'fstp        st(0)', None),
+    (0x00D9, 'D8 74 24 14', 'fdiv        dword ptr [esp+14h]', None),
+    (0x00DD, 'D9 5C 24 18', 'fstp        dword ptr [esp+18h]', None),
+    (0x00E1, 'D9 87 24 02 00 00', 'fld         dword ptr [edi+00000224h]', None),
+    (0x00E7, 'D9 5C 24 1C', 'fstp        dword ptr [esp+1Ch]', None),
+    (0x00EB, 'D9 45 28', 'fld         dword ptr [ebp+28h]', None),
+    (0x00EE, 'D9 EE', 'fldz', None),
+    (0x00F0, 'D8 D9', 'fcomp       st(1)', None),
+    (0x00F2, 'DF E0', 'fnstsw      ax', None),
+    (0x00F4, 'F6 C4 41', 'test        ah,41h', None),
+    (0x00F7, '74 06', 'je          %08X', ('local', 255)),
+    (0x00F9, 'D9 5C 24 38', 'fstp        dword ptr [esp+38h]', None),
+    (0x00FD, 'EB 2E', 'jmp         %08X', ('local', 301)),
+    (0x00FF, 'D9 E0', 'fchs', None),
+    (0x0101, 'D9 87 2C 02 00 00', 'fld         dword ptr [edi+0000022Ch]', None),
+    (0x0107, 'D8 D1', 'fcom        st(1)', None),
+    (0x0109, 'DF E0', 'fnstsw      ax', None),
+    (0x010B, 'F6 C4 01', 'test        ah,1', None),
+    (0x010E, '74 04', 'je          %08X', ('local', 276)),
+    (0x0110, 'DD D8', 'fstp        st(0)', None),
+    (0x0112, 'D9 C0', 'fld         st(0)', None),
+    (0x0114, 'D9 E8', 'fld1', None),
+    (0x0116, 'D8 E2', 'fsub        st,st(2)', None),
+    (0x0118, 'D8 D1', 'fcom        st(1)', None),
+    (0x011A, 'DF E0', 'fnstsw      ax', None),
+    (0x011C, 'F6 C4 01', 'test        ah,1', None),
+    (0x011F, '75 04', 'jne         %08X', ('local', 293)),
+    (0x0121, 'DD D8', 'fstp        st(0)', None),
+    (0x0123, 'EB 02', 'jmp         %08X', ('local', 295)),
+    (0x0125, 'DD D9', 'fstp        st(1)', None),
+    (0x0127, 'D9 5C 24 38', 'fstp        dword ptr [esp+38h]', None),
+    (0x012B, 'DD D8', 'fstp        st(0)', None),
+    (0x012D, '8B 4D 08', 'mov         ecx,dword ptr [ebp+8]', None),
+    (0x0130, '41', 'inc         ecx', None),
+    (0x0131, '89 4C 24 2C', 'mov         dword ptr [esp+2Ch],ecx', None),
+    (0x0135, '8D 7C 24 40', 'lea         edi,[esp+40h]', None),
+    (0x0139, '6A 00', 'push        0', None),
+    (0x013B, 'FF 74 24 3C', 'push        dword ptr [esp+3Ch]', None),
+    (0x013F, 'FF 74 24 24', 'push        dword ptr [esp+24h]', None),
+    (0x0143, '8D 44 24 0C', 'lea         eax,[esp+0Ch]', None),
+    (0x0147, '50', 'push        eax', None),
+    (0x0148, '8B 4C 24 38', 'mov         ecx,dword ptr [esp+38h]', None),
+    (0x014C, 'E8 00 00 00 00', 'call', ('ext', 4470992)),
+    (0x0151, '8B 04 24', 'mov         eax,dword ptr [esp]', None),
+    (0x0154, '89 07', 'mov         dword ptr [edi],eax', None),
+    (0x0156, '8B 44 24 08', 'mov         eax,dword ptr [esp+8]', None),
+    (0x015A, '89 47 04', 'mov         dword ptr [edi+4],eax', None),
+    (0x015D, '83 C7 08', 'add         edi,8', None),
+    (0x0160, 'D9 44 24 1C', 'fld         dword ptr [esp+1Ch]', None),
+    (0x0164, 'D8 44 24 18', 'fadd        dword ptr [esp+18h]', None),
+    (0x0168, 'D9 5C 24 1C', 'fstp        dword ptr [esp+1Ch]', None),
+    (0x016C, 'FF 4C 24 2C', 'dec         dword ptr [esp+2Ch]', None),
+    (0x0170, '75 C7', 'jne         %08X', ('local', 313)),
+    (0x0172, 'D9 45 20', 'fld         dword ptr [ebp+20h]', None),
+    (0x0175, 'D9 5C 24 24', 'fstp        dword ptr [esp+24h]', None),
+    (0x0179, 'D9 EE', 'fldz', None),
+    (0x017B, 'D9 5C 24 20', 'fstp        dword ptr [esp+20h]', None),
+    (0x017F, '8D 7C 24 40', 'lea         edi,[esp+40h]', None),
+    (0x0183, '8B 4D 08', 'mov         ecx,dword ptr [ebp+8]', None),
+    (0x0186, '49', 'dec         ecx', None),
+    (0x0187, '89 4C 24 2C', 'mov         dword ptr [esp+2Ch],ecx', None),
+    (0x018B, 'D9 47 08', 'fld         dword ptr [edi+8]', None),
+    (0x018E, 'D8 27', 'fsub        dword ptr [edi]', None),
+    (0x0190, 'D9 47 0C', 'fld         dword ptr [edi+0Ch]', None),
+    (0x0193, 'D8 67 04', 'fsub        dword ptr [edi+4]', None),
+    (0x0196, 'D9 C1', 'fld         st(1)', None),
+    (0x0198, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x019A, 'D9 C1', 'fld         st(1)', None),
+    (0x019C, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x019E, 'DE C1', 'faddp       st(1),st', None),
+    (0x01A0, 'D9 FA', 'fsqrt', None),
+    (0x01A2, 'D9 54 24 34', 'fst         dword ptr [esp+34h]', None),
+    (0x01A6, 'D8 44 24 20', 'fadd        dword ptr [esp+20h]', None),
+    (0x01AA, 'D9 5C 24 20', 'fstp        dword ptr [esp+20h]', None),
+    (0x01AE, 'D9 47 10', 'fld         dword ptr [edi+10h]', None),
+    (0x01B1, 'D8 67 08', 'fsub        dword ptr [edi+8]', None),
+    (0x01B4, 'D9 47 14', 'fld         dword ptr [edi+14h]', None),
+    (0x01B7, 'D8 67 0C', 'fsub        dword ptr [edi+0Ch]', None),
+    (0x01BA, 'D9 C3', 'fld         st(3)', None),
+    (0x01BC, 'D8 C9', 'fmul        st,st(1)', None),
+    (0x01BE, 'D9 C3', 'fld         st(3)', None),
+    (0x01C0, 'D8 CB', 'fmul        st,st(3)', None),
+    (0x01C2, 'D9 5C 24 30', 'fstp        dword ptr [esp+30h]', None),
+    (0x01C6, 'D8 64 24 30', 'fsub        dword ptr [esp+30h]', None),
+    (0x01CA, 'D9 E1', 'fabs', None),
+    (0x01CC, 'D9 5C 24 30', 'fstp        dword ptr [esp+30h]', None),
+    (0x01D0, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x01D2, 'D9 C9', 'fxch        st(1)', None),
+    (0x01D4, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x01D6, 'DE C1', 'faddp       st(1),st', None),
+    (0x01D8, 'D9 FA', 'fsqrt', None),
+    (0x01DA, 'D8 4C 24 34', 'fmul        dword ptr [esp+34h]', None),
+    (0x01DE, 'D9 5C 24 34', 'fstp        dword ptr [esp+34h]', None),
+    (0x01E2, 'DD D8', 'fstp        st(0)', None),
+    (0x01E4, 'DD D8', 'fstp        st(0)', None),
+    (0x01E6, 'D9 47 10', 'fld         dword ptr [edi+10h]', None),
+    (0x01E9, 'D8 27', 'fsub        dword ptr [edi]', None),
+    (0x01EB, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x01ED, 'D9 47 14', 'fld         dword ptr [edi+14h]', None),
+    (0x01F0, 'D8 67 04', 'fsub        dword ptr [edi+4]', None),
+    (0x01F3, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x01F5, 'DE C1', 'faddp       st(1),st', None),
+    (0x01F7, 'D9 FA', 'fsqrt', None),
+    (0x01F9, 'D8 4C 24 34', 'fmul        dword ptr [esp+34h]', None),
+    (0x01FD, 'D9 5C 24 34', 'fstp        dword ptr [esp+34h]', None),
+    (0x0201, 'D9 44 24 30', 'fld         dword ptr [esp+30h]', None),
+    (0x0205, 'D8 C0', 'fadd        st,st(0)', None),
+    (0x0207, 'D8 45 24', 'fadd        dword ptr [ebp+24h]', None),
+    (0x020A, 'D9 5C 24 30', 'fstp        dword ptr [esp+30h]', None),
+    (0x020E, 'D9 44 24 34', 'fld         dword ptr [esp+34h]', None),
+    (0x0212, 'D8 74 24 30', 'fdiv        dword ptr [esp+30h]', None),
+    (0x0216, 'D8 45 10', 'fadd        dword ptr [ebp+10h]', None),
+    (0x0219, 'D8 4D 0C', 'fmul        dword ptr [ebp+0Ch]', None),
+    (0x021C, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x021E, 'D9 44 24 20', 'fld         dword ptr [esp+20h]', None),
+    (0x0222, 'D8 4D 14', 'fmul        dword ptr [ebp+14h]', None),
+    (0x0225, 'DE C1', 'faddp       st(1),st', None),
+    (0x0227, 'D9 FA', 'fsqrt', None),
+    (0x0229, 'D8 54 24 24', 'fcom        dword ptr [esp+24h]', None),
+    (0x022D, 'DF E0', 'fnstsw      ax', None),
+    (0x022F, 'F6 C4 01', 'test        ah,1', None),
+    (0x0232, '74 04', 'je          %08X', ('local', 568)),
+    (0x0234, 'D9 54 24 24', 'fst         dword ptr [esp+24h]', None),
+    (0x0238, 'DD D8', 'fstp        st(0)', None),
+    (0x023A, '83 C7 08', 'add         edi,8', None),
+    (0x023D, 'FF 4C 24 2C', 'dec         dword ptr [esp+2Ch]', None),
+    (0x0241, '0F 85 44 FF FF FF', 'jne         %08X', ('local', 395)),
+    (0x0247, '8B 7C 24 3C', 'mov         edi,dword ptr [esp+3Ch]', None),
+    (0x024B, 'C7 84 24 10 01 00 00 00 00 00 00', 'mov         dword ptr [esp+00000110h],0', None),
+    (0x0256, '83 7D 44 00', 'cmp         dword ptr [ebp+44h],0', None),
+    (0x025A, '0F 84 BC 00 00 00', 'je          %08X', ('local', 796)),
+    (0x0260, '8B 84 24 08 01 00 00', 'mov         eax,dword ptr [esp+00000108h]', None),
+    (0x0267, '85 C0', 'test        eax,eax', None),
+    (0x0269, '0F 84 AD 00 00 00', 'je          %08X', ('local', 796)),
+    (0x026F, 'D9 87 24 02 00 00', 'fld         dword ptr [edi+00000224h]', None),
+    (0x0275, 'E8 67 04 00 00', 'call        %08X', ('local', 1761)),
+    (0x027A, '85 C9', 'test        ecx,ecx', None),
+    (0x027C, '0F 84 98 00 00 00', 'je          %08X', ('local', 794)),
+    (0x0282, 'D9 44 24 10', 'fld         dword ptr [esp+10h]', None),
+    (0x0286, 'D8 4D 48', 'fmul        dword ptr [ebp+48h]', None),
+    (0x0289, 'D8 74 24 14', 'fdiv        dword ptr [esp+14h]', None),
+    (0x028D, 'D8 87 24 02 00 00', 'fadd        dword ptr [edi+00000224h]', None),
+    (0x0293, 'E8 49 04 00 00', 'call        %08X', ('local', 1761)),
+    (0x0298, '85 C9', 'test        ecx,ecx', None),
+    (0x029A, '74 09', 'je          %08X', ('local', 677)),
+    (0x029C, 'D8 D1', 'fcom        st(1)', None),
+    (0x029E, 'DF E0', 'fnstsw      ax', None),
+    (0x02A0, 'F6 C4 01', 'test        ah,1', None),
+    (0x02A3, '75 04', 'jne         %08X', ('local', 681)),
+    (0x02A5, 'DD D8', 'fstp        st(0)', None),
+    (0x02A7, 'EB 02', 'jmp         %08X', ('local', 683)),
+    (0x02A9, 'DD D9', 'fstp        st(1)', None),
+    (0x02AB, 'D8 8B 12 0E 00 00', 'fmul        dword ptr [ebx+00000E12h]', None),
+    (0x02B1, 'D8 4D 44', 'fmul        dword ptr [ebp+44h]', None),
+    (0x02B4, '8B 84 24 0C 01 00 00', 'mov         eax,dword ptr [esp+0000010Ch]', None),
+    (0x02BB, '83 78 10 05', 'cmp         dword ptr [eax+10h],5', None),
+    (0x02BF, '75 0C', 'jne         %08X', ('local', 717)),
+    (0x02C1, 'DA 88 4C 2E 00 00', 'fimul       dword ptr [eax+00002E4Ch]', None),
+    (0x02C7, 'D8 8B 26 0E 00 00', 'fmul        dword ptr [ebx+00000E26h]', None),
+    (0x02CD, 'D9 54 24 24', 'fst         dword ptr [esp+24h]', None),
+    (0x02D1, 'D8 4D 60', 'fmul        dword ptr [ebp+60h]', None),
+    (0x02D4, 'D9 9C 24 10 01 00 00', 'fstp        dword ptr [esp+00000110h]', None),
+    (0x02DB, 'D9 87 24 02 00 00', 'fld         dword ptr [edi+00000224h]', None),
+    (0x02E1, 'C7 44 24 30 00 01 00 00', 'mov         dword ptr [esp+30h],100h', None),
+    (0x02E9, 'DA 4C 24 30', 'fimul       dword ptr [esp+30h]', None),
+    (0x02ED, 'D8 A3 12 0E 00 00', 'fsub        dword ptr [ebx+00000E12h]', None),
+    (0x02F3, 'DB 5C 24 30', 'fistp       dword ptr [esp+30h]', None),
+    (0x02F7, '8B 44 24 30', 'mov         eax,dword ptr [esp+30h]', None),
+    (0x02FB, '25 FF 00 00 00', 'and         eax,0FFh', None),
+    (0x0300, '8B 8C 24 08 01 00 00', 'mov         ecx,dword ptr [esp+00000108h]', None),
+    (0x0307, 'F6 04 41 01', 'test        byte ptr [ecx+eax*2],1', None),
+    (0x030B, '74 0F', 'je          %08X', ('local', 796)),
+    (0x030D, '8B 44 24 24', 'mov         eax,dword ptr [esp+24h]', None),
+    (0x0311, '89 84 24 10 01 00 00', 'mov         dword ptr [esp+00000110h],eax', None),
+    (0x0318, 'EB 02', 'jmp         %08X', ('local', 796)),
+    (0x031A, 'DD D8', 'fstp        st(0)', None),
+    (0x031C, 'D9 44 24 24', 'fld         dword ptr [esp+24h]', None),
+    (0x0320, 'D9 87 3C 03 00 00', 'fld         dword ptr [edi+0000033Ch]', None),
+    (0x0326, 'D8 94 24 10 01 00 00', 'fcom        dword ptr [esp+00000110h]', None),
+    (0x032D, 'DF E0', 'fnstsw      ax', None),
+    (0x032F, 'F6 C4 01', 'test        ah,1', None),
+    (0x0332, '74 09', 'je          %08X', ('local', 829)),
+    (0x0334, 'DD D8', 'fstp        st(0)', None),
+    (0x0336, 'D9 84 24 10 01 00 00', 'fld         dword ptr [esp+00000110h]', None),
+    (0x033D, 'D8 D1', 'fcom        st(1)', None),
+    (0x033F, 'DF E0', 'fnstsw      ax', None),
+    (0x0341, 'F6 C4 01', 'test        ah,1', None),
+    (0x0344, '74 04', 'je          %08X', ('local', 842)),
+    (0x0346, 'DD D9', 'fstp        st(1)', None),
+    (0x0348, 'EB 02', 'jmp         %08X', ('local', 844)),
+    (0x034A, 'DD D8', 'fstp        st(0)', None),
+    (0x034C, 'C7 87 3C 03 00 00 00 C0 79 44', 'mov         dword ptr [edi+0000033Ch],4479C000h', None),
+    (0x0356, '83 7D 74 00', 'cmp         dword ptr [ebp+74h],0', None),
+    (0x035A, '0F 84 D7 00 00 00', 'je          %08X', ('local', 1079)),
+    (0x0360, 'E8 00 00 00 00', 'call', ('ext', 4200432)),
+    (0x0365, '8B 48 10', 'mov         ecx,dword ptr [eax+10h]', None),
+    (0x0368, '8B 40 14', 'mov         eax,dword ptr [eax+14h]', None),
+    (0x036B, '2B C1', 'sub         eax,ecx', None),
+    (0x036D, 'C1 F8 02', 'sar         eax,2', None),
+    (0x0370, '89 44 24 2C', 'mov         dword ptr [esp+2Ch],eax', None),
+    (0x0374, '89 4C 24 30', 'mov         dword ptr [esp+30h],ecx', None),
+    (0x0378, 'FF 4C 24 2C', 'dec         dword ptr [esp+2Ch]', None),
+    (0x037C, '0F 88 B5 00 00 00', 'js          %08X', ('local', 1079)),
+    (0x0382, '8B 44 24 2C', 'mov         eax,dword ptr [esp+2Ch]', None),
+    (0x0386, '8B 4C 24 30', 'mov         ecx,dword ptr [esp+30h]', None),
+    (0x038A, '8B 0C 81', 'mov         ecx,dword ptr [ecx+eax*4]', None),
+    (0x038D, '85 C9', 'test        ecx,ecx', None),
+    (0x038F, '74 E7', 'je          %08X', ('local', 888)),
+    (0x0391, '3B CF', 'cmp         ecx,edi', None),
+    (0x0393, '74 E3', 'je          %08X', ('local', 888)),
+    (0x0395, '83 79 44 00', 'cmp         dword ptr [ecx+44h],0', None),
+    (0x0399, '74 DD', 'je          %08X', ('local', 888)),
+    (0x039B, 'D9 81 24 02 00 00', 'fld         dword ptr [ecx+00000224h]', None),
+    (0x03A1, 'D8 A7 24 02 00 00', 'fsub        dword ptr [edi+00000224h]', None),
+    (0x03A7, 'D8 93 16 0E 00 00', 'fcom        dword ptr [ebx+00000E16h]', None),
+    (0x03AD, 'DF E0', 'fnstsw      ax', None),
+    (0x03AF, 'F6 C4 01', 'test        ah,1', None),
+    (0x03B2, '74 04', 'je          %08X', ('local', 952)),
+    (0x03B4, 'D9 E8', 'fld1', None),
+    (0x03B6, 'DE C1', 'faddp       st(1),st', None),
+    (0x03B8, 'D8 4C 24 14', 'fmul        dword ptr [esp+14h]', None),
+    (0x03BC, 'D9 54 24 34', 'fst         dword ptr [esp+34h]', None),
+    (0x03C0, 'D9 EE', 'fldz', None),
+    (0x03C2, 'D8 D9', 'fcomp       st(1)', None),
+    (0x03C4, 'DF E0', 'fnstsw      ax', None),
+    (0x03C6, 'F6 C4 01', 'test        ah,1', None),
+    (0x03C9, '74 65', 'je          %08X', ('local', 1072)),
+    (0x03CB, 'D8 5D 78', 'fcomp       dword ptr [ebp+78h]', None),
+    (0x03CE, 'DF E0', 'fnstsw      ax', None),
+    (0x03D0, 'F6 C4 01', 'test        ah,1', None),
+    (0x03D3, '74 A3', 'je          %08X', ('local', 888)),
+    (0x03D5, 'D9 81 2C 02 00 00', 'fld         dword ptr [ecx+0000022Ch]', None),
+    (0x03DB, 'D8 A7 2C 02 00 00', 'fsub        dword ptr [edi+0000022Ch]', None),
+    (0x03E1, 'D9 E1', 'fabs', None),
+    (0x03E3, 'D8 5D 6C', 'fcomp       dword ptr [ebp+6Ch]', None),
+    (0x03E6, 'DF E0', 'fnstsw      ax', None),
+    (0x03E8, 'F6 C4 01', 'test        ah,1', None),
+    (0x03EB, '74 8B', 'je          %08X', ('local', 888)),
+    (0x03ED, 'E8 00 00 00 00', 'call', ('ext', 4378192)),
+    (0x03F2, 'D9 44 24 10', 'fld         dword ptr [esp+10h]', None),
+    (0x03F6, 'D8 4D 68', 'fmul        dword ptr [ebp+68h]', None),
+    (0x03F9, 'D8 D9', 'fcomp       st(1)', None),
+    (0x03FB, 'DF E0', 'fnstsw      ax', None),
+    (0x03FD, 'F6 C4 01', 'test        ah,1', None),
+    (0x0400, '75 27', 'jne         %08X', ('local', 1065)),
+    (0x0402, 'D8 45 74', 'fadd        dword ptr [ebp+74h]', None),
+    (0x0405, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x0407, 'D9 44 24 34', 'fld         dword ptr [esp+34h]', None),
+    (0x040B, 'D8 4D 14', 'fmul        dword ptr [ebp+14h]', None),
+    (0x040E, 'DE C1', 'faddp       st(1),st', None),
+    (0x0410, 'D9 FA', 'fsqrt', None),
+    (0x0412, 'D8 D1', 'fcom        st(1)', None),
+    (0x0414, 'DF E0', 'fnstsw      ax', None),
+    (0x0416, 'F6 C4 01', 'test        ah,1', None),
+    (0x0419, '75 07', 'jne         %08X', ('local', 1058)),
+    (0x041B, 'DD D8', 'fstp        st(0)', None),
+    (0x041D, 'E9 56 FF FF FF', 'jmp         %08X', ('local', 888)),
+    (0x0422, 'DD D9', 'fstp        st(1)', None),
+    (0x0424, 'E9 4F FF FF FF', 'jmp         %08X', ('local', 888)),
+    (0x0429, 'DD D8', 'fstp        st(0)', None),
+    (0x042B, 'E9 48 FF FF FF', 'jmp         %08X', ('local', 888)),
+    (0x0430, 'DD D8', 'fstp        st(0)', None),
+    (0x0432, 'E9 41 FF FF FF', 'jmp         %08X', ('local', 888)),
+    (0x0437, 'D9 45 1C', 'fld         dword ptr [ebp+1Ch]', None),
+    (0x043A, 'D8 D1', 'fcom        st(1)', None),
+    (0x043C, 'DF E0', 'fnstsw      ax', None),
+    (0x043E, 'F6 C4 01', 'test        ah,1', None),
+    (0x0441, '75 04', 'jne         %08X', ('local', 1095)),
+    (0x0443, 'DD D9', 'fstp        st(1)', None),
+    (0x0445, 'EB 02', 'jmp         %08X', ('local', 1097)),
+    (0x0447, 'DD D8', 'fstp        st(0)', None),
+    (0x0449, 'D9 96 88 00 00 00', 'fst         dword ptr [esi+00000088h]', None),
+    (0x044F, 'D8 6C 24 10', 'fsubr       dword ptr [esp+10h]', None),
+    (0x0453, 'D8 4D 18', 'fmul        dword ptr [ebp+18h]', None),
+    (0x0456, 'D9 EE', 'fldz', None),
+    (0x0458, 'D8 D9', 'fcomp       st(1)', None),
+    (0x045A, 'DF E0', 'fnstsw      ax', None),
+    (0x045C, 'F6 C4 01', 'test        ah,1', None),
+    (0x045F, '74 18', 'je          %08X', ('local', 1145)),
+    (0x0461, 'D9 E8', 'fld1', None),
+    (0x0463, 'D8 D1', 'fcom        st(1)', None),
+    (0x0465, 'DF E0', 'fnstsw      ax', None),
+    (0x0467, 'F6 C4 01', 'test        ah,1', None),
+    (0x046A, '74 02', 'je          %08X', ('local', 1134)),
+    (0x046C, 'D9 C9', 'fxch        st(1)', None),
+    (0x046E, 'DD D8', 'fstp        st(0)', None),
+    (0x0470, 'D9 9C 24 48 01 00 00', 'fstp        dword ptr [esp+00000148h]', None),
+    (0x0477, 'EB 0D', 'jmp         %08X', ('local', 1158)),
+    (0x0479, 'DD D8', 'fstp        st(0)', None),
+    (0x047B, 'C7 84 24 48 01 00 00 00 00 00 00', 'mov         dword ptr [esp+00000148h],0', None),
+    (0x0486, '8B 45 54', 'mov         eax,dword ptr [ebp+54h]', None),
+    (0x0489, '0B 45 58', 'or          eax,dword ptr [ebp+58h]', None),
+    (0x048C, '74 75', 'je          %08X', ('local', 1283)),
+    (0x048E, 'D9 44 24 10', 'fld         dword ptr [esp+10h]', None),
+    (0x0492, 'D8 5D 5C', 'fcomp       dword ptr [ebp+5Ch]', None),
+    (0x0495, 'DF E0', 'fnstsw      ax', None),
+    (0x0497, 'F6 C4 01', 'test        ah,1', None),
+    (0x049A, '75 67', 'jne         %08X', ('local', 1283)),
+    (0x049C, 'D9 84 24 54 01 00 00', 'fld         dword ptr [esp+00000154h]', None),
+    (0x04A3, 'D8 B6 BC 00 00 00', 'fdiv        dword ptr [esi+000000BCh]', None),
+    (0x04A9, 'D9 E1', 'fabs', None),
+    (0x04AB, 'D8 5D 54', 'fcomp       dword ptr [ebp+54h]', None),
+    (0x04AE, 'DF E0', 'fnstsw      ax', None),
+    (0x04B0, 'F6 C4 01', 'test        ah,1', None),
+    (0x04B3, '75 4E', 'jne         %08X', ('local', 1283)),
+    (0x04B5, '83 7D 58 00', 'cmp         dword ptr [ebp+58h],0', None),
+    (0x04B9, '74 39', 'je          %08X', ('local', 1268)),
+    (0x04BB, '8B 84 24 08 01 00 00', 'mov         eax,dword ptr [esp+00000108h]', None),
+    (0x04C2, '85 C0', 'test        eax,eax', None),
+    (0x04C4, '74 3D', 'je          %08X', ('local', 1283)),
+    (0x04C6, '40', 'inc         eax', None),
+    (0x04C7, 'D9 87 24 02 00 00', 'fld         dword ptr [edi+00000224h]', None),
+    (0x04CD, 'E8 0F 02 00 00', 'call        %08X', ('local', 1761)),
+    (0x04D2, '85 C9', 'test        ecx,ecx', None),
+    (0x04D4, '74 2B', 'je          %08X', ('local', 1281)),
+    (0x04D6, 'D8 8B 2A 0E 00 00', 'fmul        dword ptr [ebx+00000E2Ah]', None),
+    (0x04DC, 'D8 A3 2E 0E 00 00', 'fsub        dword ptr [ebx+00000E2Eh]', None),
+    (0x04E2, 'D8 A7 2C 02 00 00', 'fsub        dword ptr [edi+0000022Ch]', None),
+    (0x04E8, 'D9 E1', 'fabs', None),
+    (0x04EA, 'D8 5D 58', 'fcomp       dword ptr [ebp+58h]', None),
+    (0x04ED, 'DF E0', 'fnstsw      ax', None),
+    (0x04EF, 'F6 C4 01', 'test        ah,1', None),
+    (0x04F2, '75 0F', 'jne         %08X', ('local', 1283)),
+    (0x04F4, 'C7 84 24 44 01 00 00 00 00 00 00', 'mov         dword ptr [esp+00000144h],0', None),
+    (0x04FF, 'EB 02', 'jmp         %08X', ('local', 1283)),
+    (0x0501, 'DD D8', 'fstp        st(0)', None),
+    (0x0503, '81 C4 14 01 00 00', 'add         esp,114h', None),
+    (0x0509, '61', 'popad', None),
+    (0x050A, 'E9 00 00 00 00', 'jmp', ('ext', 4434677)),
+    (0x050F, '81 C4 14 01 00 00', 'add         esp,114h', None),
+    (0x0515, '61', 'popad', None),
+    (0x0516, '8B 4E 10', 'mov         ecx,dword ptr [esi+10h]', None),
+    (0x0519, 'C7 44 24 14 00 00 00 00', 'mov         dword ptr [esp+14h],0', None),
+    (0x0521, 'E9 00 00 00 00', 'jmp', ('ext', 4434421)),
+    (0x0526, '53', 'push        ebx', None),
+    (0x0527, '51', 'push        ecx', None),
+    (0x0528, '52', 'push        edx', None),
+    (0x0529, '56', 'push        esi', None),
+    (0x052A, '8B F0', 'mov         esi,eax', None),
+    (0x052C, 'E8 00 00 00 00', 'call        %08X', ('local', 1329)),
+    (0x0531, '5B', 'pop         ebx', None),
+    (0x0532, 'E8 00 00 00 00', 'call', ('ext', 4208528)),
+    (0x0537, '8B D0', 'mov         edx,eax', None),
+    (0x0539, '8B 42 10', 'mov         eax,dword ptr [edx+10h]', None),
+    (0x053C, '83 F8 05', 'cmp         eax,5', None),
+    (0x053F, '77 49', 'ja          %08X', ('local', 1418)),
+    (0x0541, '0F B6 8C 03 81 05 00 00', 'movzx       ecx,byte ptr [ebx+eax+00000581h]', None),
+    (0x0549, '85 C9', 'test        ecx,ecx', None),
+    (0x054B, '74 3D', 'je          %08X', ('local', 1418)),
+    (0x054D, '8B 86 04 03 00 00', 'mov         eax,dword ptr [esi+00000304h]', None),
+    (0x0553, '83 F8 06', 'cmp         eax,6', None),
+    (0x0556, '76 02', 'jbe         %08X', ('local', 1370)),
+    (0x0558, '33 C0', 'xor         eax,eax', None),
+    (0x055A, '83 F9 02', 'cmp         ecx,2', None),
+    (0x055D, '75 1B', 'jne         %08X', ('local', 1402)),
+    (0x055F, '8B C8', 'mov         ecx,eax', None),
+    (0x0561, '85 C9', 'test        ecx,ecx', None),
+    (0x0563, '75 01', 'jne         %08X', ('local', 1382)),
+    (0x0565, '41', 'inc         ecx', None),
+    (0x0566, '81 BA 98 2D 00 00 53 54 44 47', 'cmp         dword ptr [edx+00002D98h],47445453h', None),
+    (0x0570, '75 18', 'jne         %08X', ('local', 1418)),
+    (0x0572, '3B 8A 70 2E 00 00', 'cmp         ecx,dword ptr [edx+00002E70h]', None),
+    (0x0578, '7F 10', 'jg          %08X', ('local', 1418)),
+    (0x057A, '6B C0 7C', 'imul        eax,eax,7Ch', None),
+    (0x057D, '8D 84 03 89 05 00 00', 'lea         eax,[ebx+eax+00000589h]', None),
+    (0x0584, '83 78 2C 00', 'cmp         dword ptr [eax+2Ch],0', None),
+    (0x0588, '75 02', 'jne         %08X', ('local', 1420)),
+    (0x058A, '33 C0', 'xor         eax,eax', None),
+    (0x058C, '5E', 'pop         esi', None),
+    (0x058D, '5A', 'pop         edx', None),
+    (0x058E, '59', 'pop         ecx', None),
+    (0x058F, '5B', 'pop         ebx', None),
+    (0x0590, 'C3', 'ret', None),
+    (0x0591, '', ':geo_obst', None),
+    (0x0591, 'D9 5C 24 54', 'fstp        dword ptr [esp+54h]', None),
+    (0x0595, '60', 'pushad', None),
+    (0x0596, 'E8 00 00 00 00', 'call        %08X', ('local', 1435)),
+    (0x059B, '5B', 'pop         ebx', None),
+    (0x059C, '8B 47 10', 'mov         eax,dword ptr [edi+10h]', None),
+    (0x059F, 'E8 82 FF FF FF', 'call        %08X', ('local', 1318)),
+    (0x05A4, '85 C0', 'test        eax,eax', None),
+    (0x05A6, '0F 84 C9 00 00 00', 'je          %08X', ('local', 1653)),
+    (0x05AC, '8B E8', 'mov         ebp,eax', None),
+    (0x05AE, '83 7D 6C 00', 'cmp         dword ptr [ebp+6Ch],0', None),
+    (0x05B2, '0F 84 BD 00 00 00', 'je          %08X', ('local', 1653)),
+    (0x05B8, '8B 4F 10', 'mov         ecx,dword ptr [edi+10h]', None),
+    (0x05BB, '83 79 44 00', 'cmp         dword ptr [ecx+44h],0', None),
+    (0x05BF, '0F 84 B0 00 00 00', 'je          %08X', ('local', 1653)),
+    (0x05C5, '83 7E 44 00', 'cmp         dword ptr [esi+44h],0', None),
+    (0x05C9, '0F 84 A6 00 00 00', 'je          %08X', ('local', 1653)),
+    (0x05CF, 'E8 00 00 00 00', 'call', ('ext', 4378192)),
+    (0x05D4, 'D8 4D 68', 'fmul        dword ptr [ebp+68h]', None),
+    (0x05D7, '8B CE', 'mov         ecx,esi', None),
+    (0x05D9, 'E8 00 00 00 00', 'call', ('ext', 4378192)),
+    (0x05DE, 'DE D9', 'fcompp', None),
+    (0x05E0, 'DF E0', 'fnstsw      ax', None),
+    (0x05E2, 'F6 C4 01', 'test        ah,1', None),
+    (0x05E5, '0F 84 8A 00 00 00', 'je          %08X', ('local', 1653)),
+    (0x05EB, 'D9 44 24 38', 'fld         dword ptr [esp+38h]', None),
+    (0x05EF, 'D8 8B 8B 08 00 00', 'fmul        dword ptr [ebx+0000088Bh]', None),
+    (0x05F5, 'D9 C0', 'fld         st(0)', None),
+    (0x05F7, 'D8 4D 70', 'fmul        dword ptr [ebp+70h]', None),
+    (0x05FA, 'D9 86 24 02 00 00', 'fld         dword ptr [esi+00000224h]', None),
+    (0x0600, 'D8 E1', 'fsub        st,st(1)', None),
+    (0x0602, 'D9 5C 24 70', 'fstp        dword ptr [esp+70h]', None),
+    (0x0606, 'D9 44 24 38', 'fld         dword ptr [esp+38h]', None),
+    (0x060A, 'D8 8B 83 08 00 00', 'fmul        dword ptr [ebx+00000883h]', None),
+    (0x0610, 'DE C1', 'faddp       st(1),st', None),
+    (0x0612, 'D9 54 24 78', 'fst         dword ptr [esp+78h]', None),
+    (0x0616, 'D9 5C 24 38', 'fstp        dword ptr [esp+38h]', None),
+    (0x061A, 'DD D8', 'fstp        st(0)', None),
+    (0x061C, 'D9 86 2C 02 00 00', 'fld         dword ptr [esi+0000022Ch]', None),
+    (0x0622, 'D8 65 6C', 'fsub        dword ptr [ebp+6Ch]', None),
+    (0x0625, 'D9 45 6C', 'fld         dword ptr [ebp+6Ch]', None),
+    (0x0628, 'D8 C0', 'fadd        st,st(0)', None),
+    (0x062A, 'D9 83 8F 08 00 00', 'fld         dword ptr [ebx+0000088Fh]', None),
+    (0x0630, 'D8 DA', 'fcomp       st(2)', None),
+    (0x0632, 'DF E0', 'fnstsw      ax', None),
+    (0x0634, 'F6 C4 01', 'test        ah,1', None),
+    (0x0637, '75 17', 'jne         %08X', ('local', 1616)),
+    (0x0639, 'DD D8', 'fstp        st(0)', None),
+    (0x063B, 'DD D8', 'fstp        st(0)', None),
+    (0x063D, 'D9 E8', 'fld1', None),
+    (0x063F, 'D9 E0', 'fchs', None),
+    (0x0641, 'D9 86 2C 02 00 00', 'fld         dword ptr [esi+0000022Ch]', None),
+    (0x0647, 'D8 45 6C', 'fadd        dword ptr [ebp+6Ch]', None),
+    (0x064A, 'D9 E8', 'fld1', None),
+    (0x064C, 'DE C1', 'faddp       st(1),st', None),
+    (0x064E, 'EB 1D', 'jmp         %08X', ('local', 1645)),
+    (0x0650, 'D9 C1', 'fld         st(1)', None),
+    (0x0652, 'D8 C1', 'fadd        st,st(1)', None),
+    (0x0654, 'D9 E8', 'fld1', None),
+    (0x0656, 'D8 A3 8F 08 00 00', 'fsub        dword ptr [ebx+0000088Fh]', None),
+    (0x065C, 'DE D9', 'fcompp', None),
+    (0x065E, 'DF E0', 'fnstsw      ax', None),
+    (0x0660, 'F6 C4 01', 'test        ah,1', None),
+    (0x0663, '74 08', 'je          %08X', ('local', 1645)),
+    (0x0665, 'DD D8', 'fstp        st(0)', None),
+    (0x0667, 'D9 83 93 08 00 00', 'fld         dword ptr [ebx+00000893h]', None),
+    (0x066D, 'D9 5C 24 7C', 'fstp        dword ptr [esp+7Ch]', None),
+    (0x0671, 'D9 5C 24 74', 'fstp        dword ptr [esp+74h]', None),
+    (0x0675, '61', 'popad', None),
+    (0x0676, 'D9 44 24 50', 'fld         dword ptr [esp+50h]', None),
+    (0x067A, 'E9 00 00 00 00', 'jmp', ('ext', 4430194)),
+    (0x067F, '51', 'push        ecx', None),
+    (0x0680, '52', 'push        edx', None),
+    (0x0681, '50', 'push        eax', None),
+    (0x0682, 'E8 00 00 00 00', 'call', ('ext', 4208528)),
+    (0x0687, '8B 48 1C', 'mov         ecx,dword ptr [eax+1Ch]', None),
+    (0x068A, '83 F9 01', 'cmp         ecx,1', None),
+    (0x068D, '74 0A', 'je          %08X', ('local', 1689)),
+    (0x068F, '83 F9 03', 'cmp         ecx,3', None),
+    (0x0692, '74 05', 'je          %08X', ('local', 1689)),
+    (0x0694, '8B 40 20', 'mov         eax,dword ptr [eax+20h]', None),
+    (0x0697, 'EB 0A', 'jmp         %08X', ('local', 1699)),
+    (0x0699, '8B 48 48', 'mov         ecx,dword ptr [eax+48h]', None),
+    (0x069C, '83 E1 03', 'and         ecx,3', None),
+    (0x069F, '8B 44 88 28', 'mov         eax,dword ptr [eax+ecx*4+28h]', None),
+    (0x06A3, 'E8 00 00 00 00', 'call        %08X', ('local', 1704)),
+    (0x06A8, '5A', 'pop         edx', None),
+    (0x06A9, '59', 'pop         ecx', None),
+    (0x06AA, '80 BA 9E 17 00 00 00', 'cmp         byte ptr [edx+0000179Eh],0', None),
+    (0x06B1, '74 14', 'je          %08X', ('local', 1735)),
+    (0x06B3, '83 F9 06', 'cmp         ecx,6', None),
+    (0x06B6, '76 02', 'jbe         %08X', ('local', 1722)),
+    (0x06B8, '33 C9', 'xor         ecx,ecx', None),
+    (0x06BA, 'C1 E1 09', 'shl         ecx,9', None),
+    (0x06BD, '8D 84 0A A2 17 00 00', 'lea         eax,[edx+ecx+000017A2h]', None),
+    (0x06C4, '5A', 'pop         edx', None),
+    (0x06C5, '59', 'pop         ecx', None),
+    (0x06C6, 'C3', 'ret', None),
+    (0x06C7, '3B 82 96 07 00 00', 'cmp         eax,dword ptr [edx+00000796h]', None),
+    (0x06CD, '73 0D', 'jae         %08X', ('local', 1756)),
+    (0x06CF, 'C1 E0 09', 'shl         eax,9', None),
+    (0x06D2, '8D 84 02 9A 07 00 00', 'lea         eax,[edx+eax+0000079Ah]', None),
+    (0x06D9, '5A', 'pop         edx', None),
+    (0x06DA, '59', 'pop         ecx', None),
+    (0x06DB, 'C3', 'ret', None),
+    (0x06DC, '33 C0', 'xor         eax,eax', None),
+    (0x06DE, '5A', 'pop         edx', None),
+    (0x06DF, '59', 'pop         ecx', None),
+    (0x06E0, 'C3', 'ret', None),
+    (0x06E1, '83 EC 08', 'sub         esp,8', None),
+    (0x06E4, 'C7 04 24 00 01 00 00', 'mov         dword ptr [esp],100h', None),
+    (0x06EB, 'DA 0C 24', 'fimul       dword ptr [esp]', None),
+    (0x06EE, 'C7 04 24 00 00 80 3F', 'mov         dword ptr [esp],3F800000h', None),
+    (0x06F5, 'D8 24 24', 'fsub        dword ptr [esp]', None),
+    (0x06F8, 'DB 54 24 04', 'fist        dword ptr [esp+4]', None),
+    (0x06FC, 'DA 64 24 04', 'fisub       dword ptr [esp+4]', None),
+    (0x0700, 'C7 04 24 00 00 00 3F', 'mov         dword ptr [esp],3F000000h', None),
+    (0x0707, 'D8 04 24', 'fadd        dword ptr [esp]', None),
+    (0x070A, '8B 4C 24 04', 'mov         ecx,dword ptr [esp+4]', None),
+    (0x070E, '8D 51 01', 'lea         edx,[ecx+1]', None),
+    (0x0711, '81 E1 FF 00 00 00', 'and         ecx,0FFh', None),
+    (0x0717, '81 E2 FF 00 00 00', 'and         edx,0FFh', None),
+    (0x071D, '0F B6 0C 48', 'movzx       ecx,byte ptr [eax+ecx*2]', None),
+    (0x0721, '0F B6 14 50', 'movzx       edx,byte ptr [eax+edx*2]', None),
+    (0x0725, '85 C9', 'test        ecx,ecx', None),
+    (0x0727, '74 1B', 'je          %08X', ('local', 1860)),
+    (0x0729, '85 D2', 'test        edx,edx', None),
+    (0x072B, '74 17', 'je          %08X', ('local', 1860)),
+    (0x072D, '89 0C 24', 'mov         dword ptr [esp],ecx', None),
+    (0x0730, '89 54 24 04', 'mov         dword ptr [esp+4],edx', None),
+    (0x0734, 'DB 44 24 04', 'fild        dword ptr [esp+4]', None),
+    (0x0738, 'DA 24 24', 'fisub       dword ptr [esp]', None),
+    (0x073B, 'DE C9', 'fmulp       st(1),st', None),
+    (0x073D, 'DA 04 24', 'fiadd       dword ptr [esp]', None),
+    (0x0740, '83 C4 08', 'add         esp,8', None),
+    (0x0743, 'C3', 'ret', None),
+    (0x0744, 'DD D8', 'fstp        st(0)', None),
+    (0x0746, 'D9 EE', 'fldz', None),
+    (0x0748, '33 C9', 'xor         ecx,ecx', None),
+    (0x074A, '83 C4 08', 'add         esp,8', None),
+    (0x074D, 'C3', 'ret', None),
+    (0x074E, '', ':geo_line', None),
+    (0x074E, '60', 'pushad', None),
+    (0x074F, '83 EC 40', 'sub         esp,40h', None),
+    (0x0752, 'E8 00 00 00 00', 'call        %08X', ('local', 1879)),
+    (0x0757, '5B', 'pop         ebx', None),
+    (0x0758, 'E8 00 00 00 00', 'call', ('ext', 4208528)),
+    (0x075D, '8B D0', 'mov         edx,eax', None),
+    (0x075F, '8B 40 10', 'mov         eax,dword ptr [eax+10h]', None),
+    (0x0762, '83 F8 05', 'cmp         eax,5', None),
+    (0x0765, '0F 87 24 02 00 00', 'ja          %08X', ('local', 2447)),
+    (0x076B, '0F B6 BC 03 5B 03 00 00', 'movzx       edi,byte ptr [ebx+eax+0000035Bh]', None),
+    (0x0773, '85 FF', 'test        edi,edi', None),
+    (0x0775, '0F 84 14 02 00 00', 'je          %08X', ('local', 2447)),
+    (0x077B, '8B 4E 10', 'mov         ecx,dword ptr [esi+10h]', None),
+    (0x077E, '8B 81 04 03 00 00', 'mov         eax,dword ptr [ecx+00000304h]', None),
+    (0x0784, '83 F8 06', 'cmp         eax,6', None),
+    (0x0787, '76 02', 'jbe         %08X', ('local', 1931)),
+    (0x0789, '33 C0', 'xor         eax,eax', None),
+    (0x078B, '83 FF 02', 'cmp         edi,2', None),
+    (0x078E, '75 23', 'jne         %08X', ('local', 1971)),
+    (0x0790, '8B C8', 'mov         ecx,eax', None),
+    (0x0792, '85 C9', 'test        ecx,ecx', None),
+    (0x0794, '75 01', 'jne         %08X', ('local', 1943)),
+    (0x0796, '41', 'inc         ecx', None),
+    (0x0797, '81 BA 98 2D 00 00 53 54 44 47', 'cmp         dword ptr [edx+00002D98h],47445453h', None),
+    (0x07A1, '0F 85 E8 01 00 00', 'jne         %08X', ('local', 2447)),
+    (0x07A7, '3B 8A 70 2E 00 00', 'cmp         ecx,dword ptr [edx+00002E70h]', None),
+    (0x07AD, '0F 8F DC 01 00 00', 'jg          %08X', ('local', 2447)),
+    (0x07B3, '6B C0 7C', 'imul        eax,eax,7Ch', None),
+    (0x07B6, '8D BC 03 63 03 00 00', 'lea         edi,[ebx+eax+00000363h]', None),
+    (0x07BD, '83 7F 2C 00', 'cmp         dword ptr [edi+2Ch],0', None),
+    (0x07C1, '0F 84 C8 01 00 00', 'je          %08X', ('local', 2447)),
+    (0x07C7, '83 7F 4C 00', 'cmp         dword ptr [edi+4Ch],0', None),
+    (0x07CB, '74 77', 'je          %08X', ('local', 2116)),
+    (0x07CD, '8B 46 10', 'mov         eax,dword ptr [esi+10h]', None),
+    (0x07D0, '8B 80 04 03 00 00', 'mov         eax,dword ptr [eax+00000304h]', None),
+    (0x07D6, 'E8 A4 FE FF FF', 'call        %08X', ('local', 1663)),
+    (0x07DB, '85 C0', 'test        eax,eax', None),
+    (0x07DD, '74 65', 'je          %08X', ('local', 2116)),
+    (0x07DF, '40', 'inc         eax', None),
+    (0x07E0, 'D9 44 24 7C', 'fld         dword ptr [esp+7Ch]', None),
+    (0x07E4, 'E8 F8 FE FF FF', 'call        %08X', ('local', 1761)),
+    (0x07E9, '85 C9', 'test        ecx,ecx', None),
+    (0x07EB, '74 55', 'je          %08X', ('local', 2114)),
+    (0x07ED, 'D8 8B DF 06 00 00', 'fmul        dword ptr [ebx+000006DFh]', None),
+    (0x07F3, 'D8 A3 E3 06 00 00', 'fsub        dword ptr [ebx+000006E3h]', None),
+    (0x07F9, 'D8 A3 C7 06 00 00', 'fsub        dword ptr [ebx+000006C7h]', None),
+    (0x07FF, 'D8 4F 64', 'fmul        dword ptr [edi+64h]', None),
+    (0x0802, 'D8 83 C7 06 00 00', 'fadd        dword ptr [ebx+000006C7h]', None),
+    (0x0808, 'D9 47 50', 'fld         dword ptr [edi+50h]', None),
+    (0x080B, 'D9 E0', 'fchs', None),
+    (0x080D, 'D8 D1', 'fcom        st(1)', None),
+    (0x080F, 'DF E0', 'fnstsw      ax', None),
+    (0x0811, 'F6 C4 41', 'test        ah,41h', None),
+    (0x0814, '75 02', 'jne         %08X', ('local', 2072)),
+    (0x0816, 'D9 C9', 'fxch        st(1)', None),
+    (0x0818, 'DD D8', 'fstp        st(0)', None),
+    (0x081A, 'D9 E8', 'fld1', None),
+    (0x081C, 'D8 47 50', 'fadd        dword ptr [edi+50h]', None),
+    (0x081F, 'D8 D1', 'fcom        st(1)', None),
+    (0x0821, 'DF E0', 'fnstsw      ax', None),
+    (0x0823, 'F6 C4 01', 'test        ah,1', None),
+    (0x0826, '75 04', 'jne         %08X', ('local', 2092)),
+    (0x0828, 'DD D8', 'fstp        st(0)', None),
+    (0x082A, 'EB 02', 'jmp         %08X', ('local', 2094)),
+    (0x082C, 'DD D9', 'fstp        st(1)', None),
+    (0x082E, 'D8 64 24 70', 'fsub        dword ptr [esp+70h]', None),
+    (0x0832, 'D8 4F 4C', 'fmul        dword ptr [edi+4Ch]', None),
+    (0x0835, 'D8 44 24 70', 'fadd        dword ptr [esp+70h]', None),
+    (0x0839, 'D9 5C 24 70', 'fstp        dword ptr [esp+70h]', None),
+    (0x083D, 'E9 4D 01 00 00', 'jmp         %08X', ('local', 2447)),
+    (0x0842, 'DD D8', 'fstp        st(0)', None),
+    (0x0844, '83 7F 30 00', 'cmp         dword ptr [edi+30h],0', None),
+    (0x0848, '0F 84 41 01 00 00', 'je          %08X', ('local', 2447)),
+    (0x084E, '8B CD', 'mov         ecx,ebp', None),
+    (0x0850, 'E8 00 00 00 00', 'call', ('ext', 4470768)),
+    (0x0855, 'D9 5C 24 28', 'fstp        dword ptr [esp+28h]', None),
+    (0x0859, 'D9 47 38', 'fld         dword ptr [edi+38h]', None),
+    (0x085C, 'D8 67 3C', 'fsub        dword ptr [edi+3Ch]', None),
+    (0x085F, 'D8 74 24 28', 'fdiv        dword ptr [esp+28h]', None),
+    (0x0863, 'D8 44 24 7C', 'fadd        dword ptr [esp+7Ch]', None),
+    (0x0867, 'D9 5C 24 2C', 'fstp        dword ptr [esp+2Ch]', None),
+    (0x086B, 'D9 47 3C', 'fld         dword ptr [edi+3Ch]', None),
+    (0x086E, 'D8 74 24 28', 'fdiv        dword ptr [esp+28h]', None),
+    (0x0872, 'D9 5C 24 30', 'fstp        dword ptr [esp+30h]', None),
+    (0x0876, 'C7 44 24 34 03 00 00 00', 'mov         dword ptr [esp+34h],3', None),
+    (0x087E, '8D 74 24 10', 'lea         esi,[esp+10h]', None),
+    (0x0882, '6A 00', 'push        0', None),
+    (0x0884, '68 00 00 00 3F', 'push        3F000000h', None),
+    (0x0889, 'FF 74 24 34', 'push        dword ptr [esp+34h]', None),
+    (0x088D, '8D 44 24 0C', 'lea         eax,[esp+0Ch]', None),
+    (0x0891, '50', 'push        eax', None),
+    (0x0892, '8B CD', 'mov         ecx,ebp', None),
+    (0x0894, 'E8 00 00 00 00', 'call', ('ext', 4470992)),
+    (0x0899, '8B 04 24', 'mov         eax,dword ptr [esp]', None),
+    (0x089C, '89 06', 'mov         dword ptr [esi],eax', None),
+    (0x089E, '8B 44 24 08', 'mov         eax,dword ptr [esp+8]', None),
+    (0x08A2, '89 46 04', 'mov         dword ptr [esi+4],eax', None),
+    (0x08A5, '83 C6 08', 'add         esi,8', None),
+    (0x08A8, 'D9 44 24 2C', 'fld         dword ptr [esp+2Ch]', None),
+    (0x08AC, 'D8 44 24 30', 'fadd        dword ptr [esp+30h]', None),
+    (0x08B0, 'D9 5C 24 2C', 'fstp        dword ptr [esp+2Ch]', None),
+    (0x08B4, 'FF 4C 24 34', 'dec         dword ptr [esp+34h]', None),
+    (0x08B8, '75 C8', 'jne         %08X', ('local', 2178)),
+    (0x08BA, 'D9 44 24 18', 'fld         dword ptr [esp+18h]', None),
+    (0x08BE, 'D8 64 24 10', 'fsub        dword ptr [esp+10h]', None),
+    (0x08C2, 'D9 44 24 24', 'fld         dword ptr [esp+24h]', None),
+    (0x08C6, 'D8 64 24 1C', 'fsub        dword ptr [esp+1Ch]', None),
+    (0x08CA, 'DE C9', 'fmulp       st(1),st', None),
+    (0x08CC, 'D9 44 24 1C', 'fld         dword ptr [esp+1Ch]', None),
+    (0x08D0, 'D8 64 24 14', 'fsub        dword ptr [esp+14h]', None),
+    (0x08D4, 'D9 44 24 20', 'fld         dword ptr [esp+20h]', None),
+    (0x08D8, 'D8 64 24 18', 'fsub        dword ptr [esp+18h]', None),
+    (0x08DC, 'DE C9', 'fmulp       st(1),st', None),
+    (0x08DE, 'D9 5C 24 38', 'fstp        dword ptr [esp+38h]', None),
+    (0x08E2, 'D8 64 24 38', 'fsub        dword ptr [esp+38h]', None),
+    (0x08E6, 'D8 C0', 'fadd        st,st(0)', None),
+    (0x08E8, 'D9 5C 24 38', 'fstp        dword ptr [esp+38h]', None),
+    (0x08EC, 'D9 44 24 18', 'fld         dword ptr [esp+18h]', None),
+    (0x08F0, 'D8 64 24 10', 'fsub        dword ptr [esp+10h]', None),
+    (0x08F4, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x08F6, 'D9 44 24 1C', 'fld         dword ptr [esp+1Ch]', None),
+    (0x08FA, 'D8 64 24 14', 'fsub        dword ptr [esp+14h]', None),
+    (0x08FE, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x0900, 'DE C1', 'faddp       st(1),st', None),
+    (0x0902, 'D9 FA', 'fsqrt', None),
+    (0x0904, 'D9 44 24 20', 'fld         dword ptr [esp+20h]', None),
+    (0x0908, 'D8 64 24 18', 'fsub        dword ptr [esp+18h]', None),
+    (0x090C, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x090E, 'D9 44 24 24', 'fld         dword ptr [esp+24h]', None),
+    (0x0912, 'D8 64 24 1C', 'fsub        dword ptr [esp+1Ch]', None),
+    (0x0916, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x0918, 'DE C1', 'faddp       st(1),st', None),
+    (0x091A, 'D9 FA', 'fsqrt', None),
+    (0x091C, 'DE C9', 'fmulp       st(1),st', None),
+    (0x091E, 'D9 44 24 20', 'fld         dword ptr [esp+20h]', None),
+    (0x0922, 'D8 64 24 10', 'fsub        dword ptr [esp+10h]', None),
+    (0x0926, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x0928, 'D9 44 24 24', 'fld         dword ptr [esp+24h]', None),
+    (0x092C, 'D8 64 24 14', 'fsub        dword ptr [esp+14h]', None),
+    (0x0930, 'D8 C8', 'fmul        st,st(0)', None),
+    (0x0932, 'DE C1', 'faddp       st(1),st', None),
+    (0x0934, 'D9 FA', 'fsqrt', None),
+    (0x0936, 'DE C9', 'fmulp       st(1),st', None),
+    (0x0938, 'D8 47 24', 'fadd        dword ptr [edi+24h]', None),
+    (0x093B, 'D9 5C 24 3C', 'fstp        dword ptr [esp+3Ch]', None),
+    (0x093F, 'D9 44 24 38', 'fld         dword ptr [esp+38h]', None),
+    (0x0943, 'D8 74 24 3C', 'fdiv        dword ptr [esp+3Ch]', None),
+    (0x0947, 'D8 4F 34', 'fmul        dword ptr [edi+34h]', None),
+    (0x094A, 'D9 E8', 'fld1', None),
+    (0x094C, 'D8 D1', 'fcom        st(1)', None),
+    (0x094E, 'DF E0', 'fnstsw      ax', None),
+    (0x0950, 'F6 C4 01', 'test        ah,1', None),
+    (0x0953, '74 02', 'je          %08X', ('local', 2391)),
+    (0x0955, 'D9 C9', 'fxch        st(1)', None),
+    (0x0957, 'DD D8', 'fstp        st(0)', None),
+    (0x0959, 'D9 E8', 'fld1', None),
+    (0x095B, 'D9 E0', 'fchs', None),
+    (0x095D, 'D8 D1', 'fcom        st(1)', None),
+    (0x095F, 'DF E0', 'fnstsw      ax', None),
+    (0x0961, 'F6 C4 41', 'test        ah,41h', None),
+    (0x0964, '75 02', 'jne         %08X', ('local', 2408)),
+    (0x0966, 'D9 C9', 'fxch        st(1)', None),
+    (0x0968, 'DD D8', 'fstp        st(0)', None),
+    (0x096A, 'D8 4F 30', 'fmul        dword ptr [edi+30h]', None),
+    (0x096D, 'D8 83 C7 06 00 00', 'fadd        dword ptr [ebx+000006C7h]', None),
+    (0x0973, 'D8 64 24 70', 'fsub        dword ptr [esp+70h]', None),
+    (0x0977, 'D8 4F 40', 'fmul        dword ptr [edi+40h]', None),
+    (0x097A, 'D8 44 24 70', 'fadd        dword ptr [esp+70h]', None),
+    (0x097E, 'D9 5C 24 70', 'fstp        dword ptr [esp+70h]', None),
+    (0x0982, '83 C4 40', 'add         esp,40h', None),
+    (0x0985, '61', 'popad', None),
+    (0x0986, '89 7C 24 18', 'mov         dword ptr [esp+18h],edi', None),
+    (0x098A, 'E9 00 00 00 00', 'jmp', ('ext', 4429216)),
+    (0x098F, '83 C4 40', 'add         esp,40h', None),
+    (0x0992, '61', 'popad', None),
+    (0x0993, '89 7C 24 18', 'mov         dword ptr [esp+18h],edi', None),
+    (0x0997, 'E9 00 00 00 00', 'jmp', ('ext', 4429216)),
+    (0x099C, '', ':geo_watch', None),
+    (0x099C, '8B 4E 10', 'mov         ecx,dword ptr [esi+10h]', None),
+    (0x099F, '53', 'push        ebx', None),
+    (0x09A0, '57', 'push        edi', None),
+    (0x09A1, 'E8 00 00 00 00', 'call        %08X', ('local', 2470)),
+    (0x09A6, '5B', 'pop         ebx', None),
+    (0x09A7, '8D BE C0 00 00 00', 'lea         edi,[esi+000000C0h]', None),
+    (0x09AD, '80 B9 08 03 00 00 00', 'cmp         byte ptr [ecx+00000308h],0', None),
+    (0x09B4, '0F 85 E7 00 00 00', 'jne         %08X', ('local', 2721)),
+    (0x09BA, '83 B9 D0 02 00 00 02', 'cmp         dword ptr [ecx+000002D0h],2', None),
+    (0x09C1, '0F 85 CB 00 00 00', 'jne         %08X', ('local', 2706)),
+    (0x09C7, '51', 'push        ecx', None),
+    (0x09C8, 'E8 00 00 00 00', 'call', ('ext', 4208528)),
+    (0x09CD, '59', 'pop         ecx', None),
+    (0x09CE, '8B D0', 'mov         edx,eax', None),
+    (0x09D0, '8B 42 10', 'mov         eax,dword ptr [edx+10h]', None),
+    (0x09D3, '83 F8 05', 'cmp         eax,5', None),
+    (0x09D6, '0F 87 C5 00 00 00', 'ja          %08X', ('local', 2721)),
+    (0x09DC, '80 BC 03 A8 22 00 00 00', 'cmp         byte ptr [ebx+eax+000022A8h],0', None),
+    (0x09E4, '75 26', 'jne         %08X', ('local', 2572)),
+    (0x09E6, '81 BA 98 2D 00 00 53 54 44 47', 'cmp         dword ptr [edx+00002D98h],47445453h', None),
+    (0x09F0, '0F 85 AB 00 00 00', 'jne         %08X', ('local', 2721)),
+    (0x09F6, '83 BA 70 2E 00 00 00', 'cmp         dword ptr [edx+00002E70h],0', None),
+    (0x09FD, '75 0D', 'jne         %08X', ('local', 2572)),
+    (0x09FF, '83 BA 6C 2E 00 00 83', 'cmp         dword ptr [edx+00002E6Ch],0FFFFFF83h', None),
+    (0x0A06, '0F 84 95 00 00 00', 'je          %08X', ('local', 2721)),
+    (0x0A0C, 'C6 81 4C 02 00 00 01', 'mov         byte ptr [ecx+0000024Ch],1', None),
+    (0x0A13, '83 B9 9C 02 00 00 14', 'cmp         dword ptr [ecx+0000029Ch],14h', None),
+    (0x0A1A, '74 67', 'je          %08X', ('local', 2691)),
+    (0x0A1C, 'D9 81 20 02 00 00', 'fld         dword ptr [ecx+00000220h]', None),
+    (0x0A22, 'D9 07', 'fld         dword ptr [edi]', None),
+    (0x0A24, 'D9 C1', 'fld         st(1)', None),
+    (0x0A26, 'D8 83 B8 22 00 00', 'fadd        dword ptr [ebx+000022B8h]', None),
+    (0x0A2C, 'D8 D9', 'fcomp       st(1)', None),
+    (0x0A2E, 'DF E0', 'fnstsw      ax', None),
+    (0x0A30, 'F6 C4 01', 'test        ah,1', None),
+    (0x0A33, '75 59', 'jne         %08X', ('local', 2702)),
+    (0x0A35, 'D8 83 BC 22 00 00', 'fadd        dword ptr [ebx+000022BCh]', None),
+    (0x0A3B, 'DE D9', 'fcompp', None),
+    (0x0A3D, 'DF E0', 'fnstsw      ax', None),
+    (0x0A3F, 'F6 C4 01', 'test        ah,1', None),
+    (0x0A42, '75 4E', 'jne         %08X', ('local', 2706)),
+    (0x0A44, 'D9 47 04', 'fld         dword ptr [edi+4]', None),
+    (0x0A47, 'D8 84 24 94 00 00 00', 'fadd        dword ptr [esp+00000094h]', None),
+    (0x0A4E, 'D9 57 04', 'fst         dword ptr [edi+4]', None),
+    (0x0A51, 'D8 9B B0 22 00 00', 'fcomp       dword ptr [ebx+000022B0h]', None),
+    (0x0A57, 'DF E0', 'fnstsw      ax', None),
+    (0x0A59, 'F6 C4 41', 'test        ah,41h', None),
+    (0x0A5C, '75 43', 'jne         %08X', ('local', 2721)),
+    (0x0A5E, '8B 81 9C 02 00 00', 'mov         eax,dword ptr [ecx+0000029Ch]', None),
+    (0x0A64, '83 F8 0A', 'cmp         eax,0Ah', None),
+    (0x0A67, '74 38', 'je          %08X', ('local', 2721)),
+    (0x0A69, '83 F8 0F', 'cmp         eax,0Fh', None),
+    (0x0A6C, '74 33', 'je          %08X', ('local', 2721)),
+    (0x0A6E, '83 F8 14', 'cmp         eax,14h', None),
+    (0x0A71, '74 2E', 'je          %08X', ('local', 2721)),
+    (0x0A73, '83 F8 18', 'cmp         eax,18h', None),
+    (0x0A76, '74 29', 'je          %08X', ('local', 2721)),
+    (0x0A78, '8B 41 5C', 'mov         eax,dword ptr [ecx+5Ch]', None),
+    (0x0A7B, '85 C0', 'test        eax,eax', None),
+    (0x0A7D, '74 22', 'je          %08X', ('local', 2721)),
+    (0x0A7F, 'C6 40 08 01', 'mov         byte ptr [eax+8],1', None),
+    (0x0A83, '8B 83 B4 22 00 00', 'mov         eax,dword ptr [ebx+000022B4h]', None),
+    (0x0A89, '89 47 04', 'mov         dword ptr [edi+4],eax', None),
+    (0x0A8C, 'EB 13', 'jmp         %08X', ('local', 2721)),
+    (0x0A8E, 'DD D8', 'fstp        st(0)', None),
+    (0x0A90, 'DD D8', 'fstp        st(0)', None),
+    (0x0A92, '8B 81 20 02 00 00', 'mov         eax,dword ptr [ecx+00000220h]', None),
+    (0x0A98, '89 07', 'mov         dword ptr [edi],eax', None),
+    (0x0A9A, 'C7 47 04 00 00 00 00', 'mov         dword ptr [edi+4],0', None),
+    (0x0AA1, '5F', 'pop         edi', None),
+    (0x0AA2, '5B', 'pop         ebx', None),
+    (0x0AA3, '8B 81 D0 02 00 00', 'mov         eax,dword ptr [ecx+000002D0h]', None),
+    (0x0AA9, 'E9 00 00 00 00', 'jmp', ('ext', 4433681)),
+    (0x0AAE, '47 45 4F 31 02 02 02 02 02 02 00 1F 00 00 80 40 8F C2 F5 3D 0E 00 00 00 CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44', '; GEO_DRIVER data +0', None),
+    (0x0ADE, '6F 12 83 3A 00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41 00 00 20 41 00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F', '; GEO_DRIVER data +48', None),
+    (0x0B0E, '00 00 00 00 00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F 00 00 00 3F CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42 00 00 80 40 8F C2 F5 3D', '; GEO_DRIVER data +96', None),
+    (0x0B3E, '0E 00 00 00 CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44 6F 12 83 3A 00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41', '; GEO_DRIVER data +144', None),
+    (0x0B6E, '00 00 20 41 00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F 00 00 00 00 00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F', '; GEO_DRIVER data +192', None),
+    (0x0B9E, '00 00 00 3F CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42 00 00 80 40 8F C2 F5 3D 0E 00 00 00 CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F', '; GEO_DRIVER data +240', None),
+    (0x0BCE, '00 00 40 41 00 C0 79 44 6F 12 83 3A 00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41 00 00 20 41 00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E', '; GEO_DRIVER data +288', None),
+    (0x0BFE, '00 00 00 3F 00 00 40 3F 00 00 00 00 00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F 00 00 00 3F CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42', '; GEO_DRIVER data +336', None),
+    (0x0C2E, '00 00 80 40 8F C2 F5 3D 0E 00 00 00 CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44 6F 12 83 3A 00 00 00 3F 01 00 00 00', '; GEO_DRIVER data +384', None),
+    (0x0C5E, '00 00 80 BE 00 00 F0 41 00 00 20 41 00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F 00 00 00 00 00 00 00 00 00 00 C8 41', '; GEO_DRIVER data +432', None),
+    (0x0C8E, '00 00 00 00 00 00 80 3F 00 00 00 3F CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42 00 00 80 40 8F C2 F5 3D 0E 00 00 00 CD CC 0C 40 00 00 80 40', '; GEO_DRIVER data +480', None),
+    (0x0CBE, '00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44 6F 12 83 3A 00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41 00 00 20 41 00 00 C0 40 CD CC CC 3E', '; GEO_DRIVER data +528', None),
+    (0x0CEE, 'CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F 00 00 00 00 00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F 00 00 00 3F CD CC CC 3E 00 00 A0 41', '; GEO_DRIVER data +576', None),
+    (0x0D1E, '00 00 70 41 00 00 20 42 00 00 80 40 8F C2 F5 3D 0E 00 00 00 CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44 6F 12 83 3A', '; GEO_DRIVER data +624', None),
+    (0x0D4E, '00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41 00 00 20 41 00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F 00 00 00 00', '; GEO_DRIVER data +672', None),
+    (0x0D7E, '00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F 00 00 00 3F CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42 00 00 80 40 8F C2 F5 3D 0E 00 00 00', '; GEO_DRIVER data +720', None),
+    (0x0DAE, 'CD CC 0C 40 00 00 80 40 00 00 48 42 00 00 00 3F 00 00 40 41 00 C0 79 44 6F 12 83 3A 00 00 00 3F 01 00 00 00 00 00 80 BE 00 00 F0 41 00 00 20 41', '; GEO_DRIVER data +768', None),
+    (0x0DDE, '00 00 C0 40 CD CC CC 3E CD CC 8C 3F CD CC 4C 3E 00 00 00 3F 00 00 40 3F 00 00 00 00 00 00 00 00 00 00 C8 41 00 00 00 00 00 00 80 3F 00 00 00 3F', '; GEO_DRIVER data +816', None),
+    (0x0E0E, 'CD CC CC 3E 00 00 A0 41 00 00 70 41 00 00 20 42 00 00 00 3F 00 00 00 BF AB AA AA 3E CD CC CC 3D 00 00 40 40 0D 68 D3 3B 04 02 81 3C 08 04 C2 3F', '; GEO_DRIVER data +864', None),
+    (0x0E3E, '08 00 00 00 7A 7E 7A 82 78 84 76 80 76 77 76 6E 78 6E 78 7A 78 89 78 93 76 95 74 95 72 94 72 94 72 95 72 91 72 86 72 7A 72 75 72 76 74 78 74 77', '; GEO_DRIVER data +912', None),
+    (0x0E6E, '74 7A 74 82 74 7F 72 7A 72 7C 72 84 72 8A 72 8B 72 8B 70 84 70 74 70 6C 6E 71 6C 79 6C 7E 6C 7C 6C 79 6E 7A 70 79 72 7B 72 80 74 7E 74 7A 74 7A', '; GEO_DRIVER data +960', None),
+    (0x0E9E, '74 79 74 77 74 75 76 73 76 70 76 6F 76 73 76 79 76 7B 76 77 78 76 78 7A 76 7A 74 75 74 73 72 72 74 72 74 71 74 70 74 6F 76 70 76 76 78 7E 78 84', '; GEO_DRIVER data +1008', None),
+    (0x0ECE, '78 87 78 8B 78 8B 78 84 78 82 78 86 78 88 76 8B 76 8E 76 8E 76 8D 76 88 76 82 74 85 74 8C 74 90 74 91 74 91 74 8D 72 87 72 80 72 7F 72 7F 72 79', '; GEO_DRIVER data +1056', None),
+    (0x0EFE, '74 76 74 77 76 78 76 7B 76 7E 76 81 76 83 76 86 76 88 74 88 74 88 76 8B 76 8E 78 90 78 90 78 8F 76 8E 76 8E 76 8E 76 88 76 7E 76 7B 74 7C 72 78', '; GEO_DRIVER data +1104', None),
+    (0x0F2E, '72 73 72 77 72 81 72 86 72 83 72 7C 72 73 72 71 72 7A 72 88 74 91 74 92 76 8B 76 7E 76 71 74 6D 72 70 72 77 74 82 74 8C 74 92 74 94 72 92 74 8E', '; GEO_DRIVER data +1152', None),
+    (0x0F5E, '74 8B 76 87 74 83 72 7F 70 7C 6E 7A 6E 74 6E 70 6E 72 6E 77 6E 7A 6E 77 70 72 72 76 72 7C 72 84 72 8D 74 92 74 92 74 8F 74 8F 74 8E 76 8C 76 8E', '; GEO_DRIVER data +1200', None),
+    (0x0F8E, '76 91 76 95 76 97 76 96 76 93 78 8C 76 83 76 79 74 71 72 6B 70 68 6E 6A 6A 70 68 76 6A 7B 6C 81 6E 88 70 8D 70 8F 70 90 70 90 70 90 70 91 70 90', '; GEO_DRIVER data +1248', None),
+    (0x0FBE, '70 8D 72 8A 72 8A 74 8C 74 89 74 7F 74 76 72 75 70 77 6E 77 70 76 70 77 72 7B 72 80 72 82 72 7E 74 76 74 72 74 79 74 84 74 8B 72 8D 72 8B 70 88', '; GEO_DRIVER data +1296', None),
+    (0x0FEE, '70 88 6E 8C 6E 8F 6C 8A 6A 7F 66 77 5E 74 58 74 56 7E 56 8B 54 8C 56 85 5A 7F 60 7C 66 79 6C 73 6E 6D 6E 6C 70 6F 72 73 72 77 74 7B 76 7F 76 83', '; GEO_DRIVER data +1344', None),
+    (0x101E, '76 87 78 8A 78 91 7A 96 78 96 78 92 76 8A 76 7D 76 73 74 6D 74 6B 76 6D 76 70 78 72 78 73 78 75 78 77 78 7A 62 86 66 86 6A 85 6C 85 6E 85 70 81', '; GEO_DRIVER data +1392', None),
+    (0x104E, '72 7D 72 7D 72 7D 72 80 72 85 72 88 70 89 6A 89 64 88 64 87 62 87 62 89 64 8D 66 93 66 9E 62 9C 58 8B 4E 87 44 8E 44 89 46 7E 46 70 44 65 48 60', '; GEO_DRIVER data +1440', None),
+    (0x107E, '4C 5F 4C 60 4C 5F 4A 5D 46 5A 48 5A 4C 5B 52 5D 56 60 5A 65 5E 6D 5E 78 5C 7C 54 82 50 9A 52 A5 56 A2 58 9E 5A 97 58 8D 54 86 50 83 50 7F 4E 77', '; GEO_DRIVER data +1488', None),
+    (0x10AE, '4A 6E 40 68 34 65 36 67 3E 72 48 7A 4E 7F 54 87 58 89 5A 89 5A 8D 5C 8F 5C 91 5A 93 5A 95 5C 97 5E 94 5E 8D 60 88 62 89 62 8A 62 82 64 76 62 71', '; GEO_DRIVER data +1536', None),
+    (0x10DE, '60 6F 60 6B 60 6B 60 6E 5C 79 5C 8F 5A 9B 58 98 5A 92 5C 8E 5C 8C 5E 8A 60 88 64 87 68 87 6C 86 6E 87 70 87 72 88 72 86 72 81 70 7D 70 7C 70 7C', '; GEO_DRIVER data +1584', None),
+    (0x110E, '70 7D 70 7C 70 79 72 76 72 73 72 74 72 77 72 7A 72 7A 74 75 74 77 74 7D 74 81 74 82 74 82 76 86 74 89 74 86 74 83 74 85 74 87 72 84 72 83 70 83', '; GEO_DRIVER data +1632', None),
+    (0x113E, '70 82 70 82 70 80 6E 7F 6E 7D 6E 77 6E 74 6E 78 6C 78 6C 74 6E 6E 70 6D 72 6F 74 73 74 75 76 76 78 75 76 74 76 72 74 6F 74 70 72 78 70 82 70 86', '; GEO_DRIVER data +1680', None),
+    (0x116E, '70 84 70 85 6E 87 6E 84 6C 83 6A 80 6A 76 6A 6C 6A 6C 6C 72 6E 77 6E 7B 70 7D 70 7E 72 7F 74 81 74 83 76 86 74 88 74 8B 74 8E 74 90 72 91 72 91', '; GEO_DRIVER data +1728', None),
+    (0x119E, '70 8F 70 8A 70 82 70 7D 70 7E 70 7C 6E 75 6E 77 6C 81 6A 85 6A 7F 68 74 66 6C 64 76 5E 92 54 A3 4C 9F 4E 97 52 90 52 89 52 7E 50 71 4C 66 4A 5F', '; GEO_DRIVER data +1776', None),
+    (0x11CE, '48 5D 4A 5D 4C 5C 50 5B 54 5E 58 63 5A 66 5E 6B 60 72 5E 77 58 85 4E 98 44 9F 48 97 50 91 56 88 5A 75 5E 6A 60 6A 64 6B 66 6E 66 75 66 7D 66 83', '; GEO_DRIVER data +1824', None),
+    (0x11FE, '66 87 66 8D 64 92 64 93 62 91 62 8D 60 7E 5C 66 56 5B 52 5A 4A 56 46 52 48 58 4E 65 52 72 58 7D 5C 84 5E 8B 62 8F 64 8F 64 8B 64 86 64 7E 60 73', '; GEO_DRIVER data +1872', None),
+    (0x122E, '5E 79 54 92 44 A2 40 A0 44 99 4C 93 52 8E 58 88 5C 85 60 85 76 94 76 94 76 90 76 8B 74 89 74 89 74 88 74 8F 76 96 76 98 76 99 76 97 76 92 76 8C', '; GEO_DRIVER data +1920', None),
+    (0x125E, '74 83 70 77 6E 70 6E 71 6E 74 6E 75 70 72 70 6D 70 6B 70 68 70 68 70 6B 70 6D 70 6F 70 72 70 72 72 72 72 73 72 74 74 79 74 7B 76 79 76 7B 76 81', '; GEO_DRIVER data +1968', None),
+    (0x128E, '76 87 76 8D 76 92 76 92 76 8E 76 8A 76 8A 74 8A 72 89 70 88 6E 86 70 81 70 7C 72 76 70 6E 6C 6B 6C 6E 6C 73 6E 74 6E 72 6E 70 6E 6F 6E 6D 6C 6C', '; GEO_DRIVER data +2016', None),
+    (0x12BE, '6C 6D 6C 6E 6E 71 70 73 72 6F 72 6C 72 6A 72 69 70 6C 70 74 70 80 70 8B 70 93 70 96 70 94 70 8C 6E 88 6E 89 6E 89 70 89 70 89 70 88 72 85 72 83', '; GEO_DRIVER data +2064', None),
+    (0x12EE, '72 83 72 83 72 84 72 84 74 83 74 84 72 85 72 83 70 83 72 7E 72 77 72 7A 72 81 74 7C 74 71 72 70 72 76 70 7C 6E 84 6E 8B 70 8F 70 92 70 93 6E 8F', '; GEO_DRIVER data +2112', None),
+    (0x131E, '62 8E 50 8D 3C 84 2E 7E 38 82 48 8A 54 90 5C 93 62 8F 66 85 68 82 6A 84 6A 88 6A 8E 6A 8F 6A 8D 6A 8C 6C 8D 6E 8E 6E 8C 6C 8B 6C 89 6C 88 6A 89', '; GEO_DRIVER data +2160', None),
+    (0x134E, '6A 8B 6A 90 6C 92 6E 8F 6E 8F 6C 8D 6C 85 6E 84 6E 88 6E 8A 6E 8A 6E 89 6E 8B 6E 8F 6E 91 6E 91 66 93 58 8C 48 78 38 6B 32 6C 38 74 42 7E 4E 7F', '; GEO_DRIVER data +2208', None),
+    (0x137E, '58 78 5E 75 64 74 66 74 6A 75 6C 77 6E 7B 70 7F 72 83 74 86 74 87 74 86 76 87 76 88 78 8A 76 8B 76 89 74 86 76 84 76 83 78 83 78 85 78 89 78 8B', '; GEO_DRIVER data +2256', None),
+    (0x13AE, '78 8A 78 8C 76 8E 76 8F 78 8E 76 8D 74 8C 74 8A 74 88 76 87 78 88 78 87 78 86 78 87 78 84 78 81 76 83 74 87 74 87 72 80 6C 78 66 77 66 7C 6A 86', '; GEO_DRIVER data +2304', None),
+    (0x13DE, '6C 90 6E 93 70 90 72 89 72 83 74 83 74 84 72 86 70 8D 70 8E 70 88 70 81 70 7C 6E 79 6E 78 6E 75 6E 71 6C 6F 6A 74 6A 7A 6A 7A 6E 77 70 74 6E 70', '; GEO_DRIVER data +2352', None),
+    (0x140E, '6E 6F 6E 70 70 6C 72 6B 72 73 72 83 70 91 6E 98 6C 96 68 8F 66 85 66 79 60 87 52 A2 52 9E 5C 94 62 96 68 96 6C 94 6E 91 70 8E 72 8C 74 8B 74 89', '; GEO_DRIVER data +2400', None),
+    (0x143E, '74 89 74 8F 78 87 78 89 7A 8C 7A 8E 7A 91 7A 94 7A 97 78 95 74 84 6E 63 6A 51 68 61 66 7B 68 8A 6A 8D 6C 88 6E 80 6C 75 6C 6C 6A 67 6C 65 6E 63', '; GEO_DRIVER data +2448', None),
+    (0x146E, '6E 6F 6E 83 6A 83 68 7A 66 7E 66 83 66 7F 66 77 64 7C 64 91 66 9F 6A A6 6E A6 70 98 72 80 74 70 74 72 74 82 72 96 6C AC 60 C5 54 D7 4E DA 4C D4', '; GEO_DRIVER data +2496', None),
+    (0x149E, '48 CE 48 BA 4C 93 54 7B 58 7B 5C 7B 62 75 66 77 66 83 6A 89 6C 86 6E 7E 6E 71 6C 62 6E 5C 70 5C 72 5F 72 66 72 6D 72 73 74 71 74 6A 74 68 74 69', '; GEO_DRIVER data +2544', None),
+    (0x14CE, '76 6D 76 70 76 6F 74 6D 74 6B 74 70 74 7E 74 89 74 89 72 84 72 76 72 6C 72 74 72 85 72 92 72 99 72 92 72 80 72 7C 70 84 6E 8F 6C 9A 6A 99 6C 94', '; GEO_DRIVER data +2592', None),
+    (0x14FE, '6C A2 66 C3 5E E1 58 E6 52 D3 56 C1 5E B3 62 A9 64 A5 66 A2 68 99 68 8D 68 88 68 87 68 88 6A 8F 6A 96 6E 9C 70 99 70 8F 72 8A 74 89 76 88 78 89', '; GEO_DRIVER data +2640', None),
+    (0x152E, '78 89 78 89 78 8D 78 91 78 97 76 9B 74 93 72 7E 6E 72 6C 7E 6A 91 6A 9F 6C A7 6E A0 70 8C 72 77 72 72 74 7B 74 84 72 89 72 8B 70 84 70 75 70 6D', '; GEO_DRIVER data +2688', None),
+    (0x155E, '70 76 70 84 72 8A 72 81 72 70 72 65 70 62 70 68 6E 78 6C 8C 6C 95 68 93 64 91 64 8C 66 81 66 7B 66 79 68 7A 6C 7C 6C 80 68 87 66 85 68 81 6A 88', '; GEO_DRIVER data +2736', None),
+    (0x158E, '68 9B 62 AA 60 A9 62 A0 64 8F 64 7D 62 79 5E 7F 5C 81 5A 88 5C 90 5E 8C 62 7D 64 70 68 6C 6C 6F 70 75 72 7A 74 7F 76 80 76 83 74 84 70 84 6C 85', '; GEO_DRIVER data +2784', None),
+    (0x15BE, '6A 87 6A 88 66 8B 66 8D 6A 8F 6E 8F 72 8C 72 8A 70 8B 70 91 6E 98 6E 9B 6E 9B 70 9C 72 A0 74 AB 76 AD 74 A8 74 AB 74 AC 72 A9 72 A5 70 A1 6E A1', '; GEO_DRIVER data +2832', None),
+    (0x15EE, '6E A5 6E AA 6C B1 6E B8 70 AF 70 A1 72 A1 72 9C 72 8F 70 92 70 9A 70 97 70 8A 6E 79 6C 6E 6A 72 68 73 68 68 68 68 68 72 68 75 6C 74 70 76 72 79', '; GEO_DRIVER data +2880', None),
+    (0x161E, '74 7A 76 76 78 75 78 76 76 79 76 80 74 89 74 8F 74 8E 74 8E 72 8F 72 88 72 7D 72 79 72 7B 74 83 76 88 76 87 74 78 74 76 74 77 74 79 74 79 74 79', '; GEO_DRIVER data +2928', None),
+    (0x164E, '74 7B 74 7A 74 77 74 71 74 6B 74 6A 74 68 74 5D 74 54 74 51 74 4E 76 53 76 5F 76 72 74 8B 74 95 74 93 76 93 76 90 76 81 76 79 76 87 76 8F 74 8D', '; GEO_DRIVER data +2976', None),
+    (0x167E, '74 8C 74 8C 74 8B 74 89 75 8A 73 88 6D 78 69 5C 65 45 63 4B 61 5F 5D 61 59 69 57 85 54 9F 52 A9 4E A4 4A 9A 46 94 44 99 40 9A 3C 84 3A 6B 36 73', '; GEO_DRIVER data +3024', None),
+    (0x16AE, '30 93 2C 8D 2E 78 34 7B 3A 83 40 85 46 77 4C 69 52 68 56 64 58 60 5A 63 5C 62 5E 5C 62 5D 64 5E 66 5D 68 60 68 64 66 6C 62 78 5E 81 5C 7D 5A 68', '; GEO_DRIVER data +3072', None),
+    (0x16DE, '58 40 54 24 54 28 54 34 54 3F 54 55 56 6D 5A 66 5C 55 5E 5E 60 71 62 84 64 92 66 8E 68 7D 6A 70 6A 6D 6C 6E 6C 6F 6E 71 6E 6C 6E 62 6E 5F 6E 62', '; GEO_DRIVER data +3120', None),
+    (0x170E, '6C 64 6C 62 6A 5C 6A 59 6C 59 6C 5A 6C 5A 6C 6D 6E 89 6E 96 6E A0 6E A3 70 9D 70 94 72 85 72 7A 74 74 74 6E 74 68 76 63 76 62 76 66 74 68 76 71', '; GEO_DRIVER data +3168', None),
+    (0x173E, '76 77 76 78 76 7D 78 7E 78 7A 78 79 78 7F 78 85 78 8F 78 9A 7A 9E 7A 9D 7A 98 7A 93 7A 8C 7A 8A 7C 8E 7C 8E 7C 8B 7C 8D 7A 90 7A 8D 76 8A 72 85', '; GEO_DRIVER data +3216', None),
+    (0x176E, '70 80 6A 90 66 A6 62 99 5E 74 5C 5C 5A 51 58 41 56 42 52 60 50 74 4E 6C 4E 68 4E 6F 4E 76 4C 7D 4C 81 4A 84 48 85 48 84 46 82 44 7A 42 67 40 54', '; GEO_DRIVER data +3264', None),
+    (0x179E, '40 4A 3E 54 3E 71 3E 87 42 8D 42 8D 42 89 48 89 4C 8A 50 84 56 76 5A 54 5C 2C 5E 24 60 38 60 5E 5E 8C 5C A3 5C 9F 60 91 62 95 64 A6 64 9F 66 82', '; GEO_DRIVER data +3312', None),
+    (0x17CE, '68 77 6A 7B 6A 78 68 78 64 7D 5A 87 50 97 42 A0 30 A6 28 A5 34 95 3C 78 38 6A 30 72 26 68 26 58 30 54 38 53 3C 57 42 5E 48 64 4C 67 50 66 54 64', '; GEO_DRIVER data +3360', None),
+    (0x17FE, '56 64 58 65 5A 66 5C 68 5C 71 5C 7F 5C 8E 5E 9A 60 98 62 91 64 8F 66 8D 66 8B 68 88 6A 86 6A 81 6C 7A 6E 78 6E 7C 6E 7F 6E 78 6E 60 6E 62 6E 83', '; GEO_DRIVER data +3408', None),
+    (0x182E, '70 88 70 7A 72 72 72 71 72 76 74 76 74 72 74 72 74 76 74 78 74 7F 74 7D 74 7D 74 7D 74 7D 76 7C 76 7E 74 7F 74 78 72 70 72 6E 70 70 6C 6F 6A 6C', '; GEO_DRIVER data +3456', None),
+    (0x185E, '6A 6C 6C 6F 6E 76 6C 7C 6C 82 6E 89 6E 8B 6C 88 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 60 7E 5A 61 4E 4E 44 65', '; GEO_DRIVER data +3504', None),
+    (0x188E, '40 7B 38 7D 32 80 38 83 44 8C 4C 95 52 94 58 8F 5C 8F 5E 91 62 93 62 96 66 95 68 7F 6A 59 6C 4C 6C 64 6C 72 6C 6A 6C 6E 6E 88 70 A0 72 A5 72 96', '; GEO_DRIVER data +3552', None),
+    (0x18BE, '74 7E 74 6E 76 6B 76 71 76 76 76 7C 76 82 76 82 76 7E 74 7A 74 79 72 75 72 6C 72 69 72 6B 72 6C 72 72 74 77 74 7A 74 7D 74 7C 72 77 72 78 72 79', '; GEO_DRIVER data +3600', None),
+    (0x18EE, '70 76 6E 75 6E 75 70 75 72 77 72 7D 72 80 74 80 74 81 74 84 76 84 76 80 76 84 76 8D 78 91 76 94 76 97 76 93 78 88 78 85 78 88 78 88 78 82 78 7B', '; GEO_DRIVER data +3648', None),
+    (0x191E, '78 79 78 7C 78 84 78 8F 78 95 78 98 78 9B 76 9A 76 95 76 94 76 90 76 8B 78 90 78 94 78 90 78 8C 78 8B 78 8A 76 89 74 89 72 89 70 8A 70 86 72 81', '; GEO_DRIVER data +3696', None),
+    (0x194E, '72 84 74 89 74 85 74 80 76 81 76 82 76 85 76 88 76 8A 76 8C 74 92 72 94 72 95 72 93 72 90 70 90 72 8F 72 8D 74 8A 74 89 72 88 70 82 6E 79 6C 76', '; GEO_DRIVER data +3744', None),
+    (0x197E, '6C 7E 6C 8C 6E 93 6E 90 6E 8D 6E 8F 6E 8D 6E 88 6C 83 6A 75 66 6C 62 7C 60 88 62 83 64 7F 68 80 6C 7F 6E 7E 70 7C 72 7C 74 7F 76 7D 76 79 76 76', '; GEO_DRIVER data +3792', None),
+    (0x19AE, '76 75 76 79 74 7E 74 7D 74 7B 74 7D 74 83 74 86 74 85 74 83 74 82 72 83 72 7F 72 7C 72 7D 70 82 70 8A 70 8C 72 85 72 7E 72 7B 72 7B 72 76 72 6F', '; GEO_DRIVER data +3840', None),
+    (0x19DE, '70 68 70 6C 72 7E 72 8D 72 90 72 91 74 94 74 8F 74 82 74 6E 72 5A 72 4D 72 4E 72 52 70 53 6E 5F 6E 6E 6E 68 6E 56 70 4E 70 4B 70 42 70 37 70 3E', '; GEO_DRIVER data +3888', None),
+    (0x1A0E, '6E 5C 6E 77 6E 7A 70 7B 72 89 74 92 74 91 74 91 74 9A 74 A0 72 A1 72 96 72 89 72 8E 74 92 74 8C 76 82 76 78 78 76 78 71 78 6D 7A 72 7A 77 78 78', '; GEO_DRIVER data +3936', None),
+    (0x1A3E, '76 7A 74 7E 74 68 76 63 7A 61 7C 65 7A 6D 78 7B 76 8D 74 A0 74 B4 74 CA 74 D3 74 CA 74 C8 74 D0 72 C8 70 A5 70 74 70 5B 72 5F 72 60 72 5D 72 5D', '; GEO_DRIVER data +3984', None),
+    (0x1A6E, '72 5D 72 5A 72 4C 74 4F 76 76 76 90 76 B2 76 D3 76 BE 78 9B 78 7F 76 68 76 6C 76 6B 74 57 74 4C 74 50 74 5F 72 6C 72 71 72 71 72 6F 72 69 74 62', '; GEO_DRIVER data +4032', None),
+    (0x1A9E, '74 5D 74 5D 74 64 72 6E 72 73 72 71 72 6A 72 64 70 63 70 65 6E 69 6E 6A 6E 6C 6E 74 6C 77 6C 74 6C 76 6C 77 6C 7A 6C 8A 6C 94 6C 8C 6C 81 6A 85', '; GEO_DRIVER data +4080', None),
+    (0x1ACE, '6A 84 6A 71 68 64 64 64 64 6D 64 7B 66 80 66 78 66 70 68 6E 6A 71 6C 74 6E 77 70 7A 72 7E 74 85 74 8E 74 90 76 8E 78 88 78 82 76 81 74 84 74 84', '; GEO_DRIVER data +4128', None),
+    (0x1AFE, '76 83 78 83 78 86 76 8A 74 8E 76 90 78 93 7A 95 7A 97 7A 9C 78 A0 76 A2 76 A2 76 9D 78 98 7A 9A 7C 9F 7A 9B 78 8D 74 78 72 5B 72 49 70 50 70 6A', '; GEO_DRIVER data +4176', None),
+    (0x1B2E, '72 80 72 8C 74 95 76 9A 76 9B 78 9C 78 9C 76 9B 74 96 70 84 6E 5B 6E 2F 72 25 6E 42 60 6E 54 96 54 AB 5C B3 66 BA 6C B9 70 A7 74 90 78 7F 7A 75', '; GEO_DRIVER data +4224', None),
+    (0x1B5E, '7A 72 7A 75 7C 78 7A 7B 78 7F 76 85 74 8A 72 8F 72 93 72 97 74 99 76 99 76 95 78 91 78 8E 78 8D 76 82 74 72 72 70 72 7B 74 88 74 8E 72 8B 70 80', '; GEO_DRIVER data +4272', None),
+    (0x1B8E, '6E 77 6C 7D 6C 8E 6E 99 70 98 72 8E 72 82 72 82 72 85 74 7A 74 6C 76 71 78 7B 7A 7C 7A 7D 7A 7B 78 75 76 75 76 79 76 7D 74 7F 74 75 74 64 74 60', '; GEO_DRIVER data +4320', None),
+    (0x1BBE, '76 67 78 6E 78 74 7A 75 7A 75 7A 74 78 75 76 7C 76 8D 74 97 74 96 74 95 74 94 74 94 74 96 74 95 74 97 72 99 72 96 70 90 70 89 6E 82 6C 7C 6C 78', '; GEO_DRIVER data +4368', None),
+    (0x1BEE, '6C 78 6A 77 6A 78 6A 7A 6A 77 6C 72 6C 71 6C 6D 6C 69 6A 67 6C 69 6C 6F 6E 76 70 77 72 78 72 7D 72 85 72 8A 74 8C 74 8D 76 90 76 90 76 87 78 75', '; GEO_DRIVER data +4416', None),
+    (0x1C1E, '76 69 6C 69 66 6C 68 82 64 A5 56 B7 4E B5 56 AB 5E A0 64 97 66 8F 6A 88 6C 7C 6E 70 6E 6F 70 6F 70 6C 72 6A 76 8A 78 8B 78 98 76 9E 76 98 76 8D', '; GEO_DRIVER data +4464', None),
+    (0x1C4E, '74 83 72 7B 72 75 72 6C 72 6D 72 75 72 7B 72 7E 72 7A 72 79 74 7F 74 85 76 8B 76 8F 76 92 76 93 76 8D 76 8D 74 92 74 91 74 91 74 91 74 92 74 95', '; GEO_DRIVER data +4512', None),
+    (0x1C7E, '74 95 74 96 74 95 74 95 76 94 76 92 76 8E 76 8D 76 8C 76 88 76 88 76 8E 76 91 74 91 72 90 72 8F 72 8C 72 92 72 98 72 93 72 87 72 7D 72 75 72 6A', '; GEO_DRIVER data +4560', None),
+    (0x1CAE, '72 60 72 59 72 55 70 57 70 5C 70 5C 72 60 74 73 74 8A 74 98 72 A1 72 A8 72 AD 70 AF 70 AE 70 A9 70 A3 70 9D 70 99 70 9A 72 9B 72 93 74 92 76 9B', '; GEO_DRIVER data +4608', None),
+    (0x1CDE, '76 9B 78 90 76 87 76 85 76 84 76 80 76 7A 74 76 74 79 74 7D 74 7C 74 7C 74 81 70 83 6E 80 6E 81 6E 81 70 84 70 93 72 9D 72 9C 72 98 74 94 74 8D', '; GEO_DRIVER data +4656', None),
+    (0x1D0E, '74 7E 76 6D 76 66 78 68 76 75 76 87 74 8E 74 8D 76 89 74 8A 72 96 70 9B 70 9A 6E 95 6E 8D 6E 8E 6E 93 6E 96 70 92 74 86 76 77 76 6E 76 75 76 84', '; GEO_DRIVER data +4704', None),
+    (0x1D3E, '74 91 74 97 74 95 74 87 72 80 70 7E 70 69 70 58 70 5B 70 68 72 76 72 7F 72 84 74 85 74 80 74 78 72 77 72 79 74 7A 76 7B 76 80 74 81 74 79 74 79', '; GEO_DRIVER data +4752', None),
+    (0x1D6E, '72 82 72 89 70 8E 70 90 70 8E 72 86 72 7A 72 74 72 72 74 6E 74 6A 74 6C 74 77 74 85 74 8C 74 8D 76 8B 74 85 74 80 72 7D 74 7E 74 81 74 7F 74 7A', '; GEO_DRIVER data +4800', None),
+    (0x1D9E, '76 7C 76 85 78 8B 78 8C 78 8E 76 91 76 91 74 93 74 98 74 9A 75 9A 75 95 75 8E 75 85 73 7B 73 7B 71 73 71 63 71 5E 71 64 71 69 70 6D 72 76 72 79', '; GEO_DRIVER data +4848', None),
+    (0x1DCE, '72 75 74 7D 74 8B 74 87 72 81 72 84 70 89 70 89 70 8E 72 95 74 96 74 8C 76 7D 76 74 74 6C 70 69 68 76 64 84 60 82 5E 76 5E 6C 62 6A 64 6A 68 67', '; GEO_DRIVER data +4896', None),
+    (0x1DFE, '6A 65 6E 65 70 67 70 69 70 6E 72 74 72 77 74 7F 76 88 76 8D 76 91 74 97 74 9B 74 97 70 8F 6C 8C 6C 8C 6E 8E 70 90 70 90 70 8F 70 93 70 97 70 9E', '; GEO_DRIVER data +4944', None),
+    (0x1E2E, '70 A4 72 A5 72 98 72 80 74 7B 74 87 76 89 76 7F 76 80 76 8B 47 45 4F 32 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +4992', None),
+    (0x1E5E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5040', None),
+    (0x1E8E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5088', None),
+    (0x1EBE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5136', None),
+    (0x1EEE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5184', None),
+    (0x1F1E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5232', None),
+    (0x1F4E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5280', None),
+    (0x1F7E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5328', None),
+    (0x1FAE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5376', None),
+    (0x1FDE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5424', None),
+    (0x200E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5472', None),
+    (0x203E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5520', None),
+    (0x206E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5568', None),
+    (0x209E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5616', None),
+    (0x20CE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5664', None),
+    (0x20FE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5712', None),
+    (0x212E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5760', None),
+    (0x215E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5808', None),
+    (0x218E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5856', None),
+    (0x21BE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5904', None),
+    (0x21EE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +5952', None),
+    (0x221E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6000', None),
+    (0x224E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6048', None),
+    (0x227E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6096', None),
+    (0x22AE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6144', None),
+    (0x22DE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6192', None),
+    (0x230E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6240', None),
+    (0x233E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6288', None),
+    (0x236E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6336', None),
+    (0x239E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6384', None),
+    (0x23CE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6432', None),
+    (0x23FE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6480', None),
+    (0x242E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6528', None),
+    (0x245E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6576', None),
+    (0x248E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6624', None),
+    (0x24BE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6672', None),
+    (0x24EE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6720', None),
+    (0x251E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6768', None),
+    (0x254E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6816', None),
+    (0x257E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6864', None),
+    (0x25AE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6912', None),
+    (0x25DE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +6960', None),
+    (0x260E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7008', None),
+    (0x263E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7056', None),
+    (0x266E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7104', None),
+    (0x269E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7152', None),
+    (0x26CE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7200', None),
+    (0x26FE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7248', None),
+    (0x272E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7296', None),
+    (0x275E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7344', None),
+    (0x278E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7392', None),
+    (0x27BE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7440', None),
+    (0x27EE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7488', None),
+    (0x281E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7536', None),
+    (0x284E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7584', None),
+    (0x287E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7632', None),
+    (0x28AE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7680', None),
+    (0x28DE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7728', None),
+    (0x290E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7776', None),
+    (0x293E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7824', None),
+    (0x296E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7872', None),
+    (0x299E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7920', None),
+    (0x29CE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +7968', None),
+    (0x29FE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8016', None),
+    (0x2A2E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8064', None),
+    (0x2A5E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8112', None),
+    (0x2A8E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8160', None),
+    (0x2ABE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8208', None),
+    (0x2AEE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8256', None),
+    (0x2B1E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8304', None),
+    (0x2B4E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8352', None),
+    (0x2B7E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8400', None),
+    (0x2BAE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8448', None),
+    (0x2BDE, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8496', None),
+    (0x2C0E, '00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00', '; GEO_DRIVER data +8544', None),
+    (0x2C3E, '00 00 00 00 00 00 00 00 00 00 00 00 47 45 4F 33 00 00 00 01 01 01 00 00 00 00 A0 40 00 00 40 C0 0A D7 A3 3C 6F 12 03 3B 00', '; GEO_DRIVER data +8592', None),
+)
+# <<< GEO_DRIVER
+
+
+def emit_table(a, label, table):
+    """Put a table of asm2py.py into the code: plain bytes, jumps inside it, calls and jumps out."""
+    base = a.label(label)
+    for off, hx, text, target in table:
+        assert a.here == base + off, (label, hex(off))
+        if text.startswith(":"):
+            a.label(text[1:])
+        elif text.startswith(";"):
+            a.data(bytes.fromhex(hx), text[1:].strip())
+        elif target is None:
+            a.raw(hx, text)
+        elif target[0] == "local":
+            a.raw(hx, text % (base + target[1]))
+        elif text == "call":
+            a.call(target[1])
+        else:
+            a.jmp(target[1])
 
 
 def build_payload(base, factors, pulls, known=None, version=None):
@@ -1041,47 +2166,57 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.label("ai_class_clamp_ok")
     a.jmp(LS_GET)
 
+    # The computer karts' "Tempo" for this race, in percent: the value of the page "Gegner", or
+    # for "Standard" (and for a save without the marker) the class's own. Returns eax, keeps
+    # every other register.
+    a.label("opp_tempo")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_mov("eax", GP_POINTER)
+    a.raw("51", "push        ecx")
+    a.raw("8B 88 " + _le(OPP_VALUE), "mov         ecx,dword ptr [eax+%08Xh]" % OPP_VALUE)
+    a.raw("81 B8 %s %s" % (_le(STD_MARK), _le(STD_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (STD_MARK, _imm(STD_MAGIC)))
+    a.jcc_short("jne", "opp_tempo_class")
+    a.raw("83 F9 %02X" % (OPP_STANDARD & 0xFF), "cmp         ecx,%s" % _imm(OPP_STANDARD))
+    a.jcc_short("jne", "opp_tempo_done")
+    a.label("opp_tempo_class")
+    a.raw("8B 48 10", "mov         ecx,dword ptr [eax+10h]")                 # class
+    a.raw("83 F9 05", "cmp         ecx,5")
+    a.jcc_short("jbe", "opp_tempo_table")
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.jmp_short("opp_tempo_done")
+    a.label("opp_tempo_table")
+    disp = tdisp("opp_class_tempo")
+    a.raw("0F BE 8C 0D " + _le(disp), "movsx       ecx,byte ptr [ebp+ecx+%08Xh]" % disp)
+    a.label("opp_tempo_done")
+    a.raw("8B C1", "mov         eax,ecx")
+    a.raw("59", "pop         ecx")
+    a.raw("5D", "pop         ebp")
+    a.raw("C3", "ret")
+
     # In place of the computer kart's "throttle factor * strength of this kart" (st0 = factor,
-    # the strength is [eax+edx*4+54h]; the next instruction loads eax): from 200 cc on the
-    # throttle t becomes t + (1 - t) * g, g from AI_CATCHUP or "Gegner". Keeps ecx, edx.
+    # the strength is [eax+edx*4+54h]; the next instruction loads eax): the throttle t becomes
+    # t + (1 - t) * g, below 0 t + t * g, g = "Tempo" in hundredths (see AI_CATCHUP). Keeps ecx, edx.
     a.label("ai_throttle")
     a.raw("D8 4C 90 54", "fmul        dword ptr [eax+edx*4+54h]")      # displaced
-    a.raw("51", "push        ecx")
-    a.call("ai_throttle_pc")
-    a.label("ai_throttle_pc")
-    a.raw("59", "pop         ecx")
-    gp_disp = (GP_POINTER - a.labels["ai_throttle_pc"]) & 0xFFFFFFFF
-    a.raw("8B 81 " + _le(gp_disp), "mov         eax,dword ptr [ecx+%08Xh]" % gp_disp)   # GameParameters*
-    a.raw("8B 40 10", "mov         eax,dword ptr [eax+10h]")                 # class
-    a.raw("83 F8 03", "cmp         eax,3")
-    a.jcc_short("jb", "ai_throttle_done")                                    # 50 to 150 cc: as the game has it
-    a.raw("83 F8 05", "cmp         eax,5")
-    a.jcc_short("ja", "ai_throttle_done")
+    a.call("opp_tempo")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_short("je", "ai_throttle_done")                                    # 0 %: as the game has it
+    a.raw("6A 64", "push        64h")
+    a.raw("50", "push        eax")
+    a.jcc_short("jl", "ai_throttle_slower")                                  # (the pushes keep the flags)
     a.raw("D9 E8", "fld1")
     a.raw("D8 E1", "fsub        st,st(1)")                                   # 1 - t
-    a.jcc_short("je", "ai_throttle_tuning")
-    disp = (later("ai_catchup") - 4 * 3 - a.labels["ai_throttle_pc"]) & 0xFFFFFFFF
-    a.raw("D8 8C 81 " + _le(disp), "fmul        dword ptr [ecx+eax*4+%08Xh]" % disp)
-    a.jmp_short("ai_throttle_add")
-    a.label("ai_throttle_tuning")                 # "Gegner", in percent: st0 = 1 - t, st1 = t
-    a.raw("8B 81 " + _le(gp_disp), "mov         eax,dword ptr [ecx+%08Xh]" % gp_disp)
-    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
-    a.raw("8D 80 " + _le(off), "lea         eax,[eax+%08Xh]" % off)
-    disp = (later("hundredth") - a.labels["ai_throttle_pc"]) & 0xFFFFFFFF
-    a.raw("83 38 00", "cmp         dword ptr [eax],0")
-    a.jcc_short("jl", "ai_throttle_slower")
-    a.raw("DA 08", "fimul       dword ptr [eax]")                         # 0..100 %: t + (1 - t) * g
-    a.raw("D8 89 " + _le(disp), "fmul        dword ptr [ecx+%08Xh]" % disp)
-    a.jmp_short("ai_throttle_add")
+    a.jmp_short("ai_throttle_mul")
     a.label("ai_throttle_slower")                 # below 0: t + t * g
-    a.raw("DD D8", "fstp        st(0)")
     a.raw("D9 C0", "fld         st(0)")
-    a.raw("DA 08", "fimul       dword ptr [eax]")
-    a.raw("D8 89 " + _le(disp), "fmul        dword ptr [ecx+%08Xh]" % disp)
-    a.label("ai_throttle_add")
+    a.label("ai_throttle_mul")
+    a.raw("DA 0C 24", "fimul       dword ptr [esp]")
+    a.raw("DA 74 24 04", "fidiv       dword ptr [esp+4]")
     a.raw("DE C1", "faddp       st(1),st")
+    a.raw("83 C4 08", "add         esp,8")
     a.label("ai_throttle_done")
-    a.raw("59", "pop         ecx")
     a.raw("8B 46 10", "mov         eax,dword ptr [esi+10h]")                 # displaced
     a.raw("C3", "ret")
 
@@ -1105,6 +2240,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.call(RAND_MOD)
     a.raw("83 C4 04", "add         esp,4")
     a.raw("C3", "ret")
+
+    emit_table(a, "geo_ai", GEO_DRIVER)
 
     # -- engine sound: three samples (50/100/150), the new classes reuse the 150 one ---
     a.label("engine_sound")
@@ -1217,7 +2354,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_short("ja", "pull_mul_tuning")
     table_disp = (later("class_pull_table") - a.labels["pull_mul_pc"]) & 0xFFFFFFFF
     a.raw("D8 8C 81 " + _le(table_disp), "fmul        dword ptr [ecx+eax*4+%08Xh]" % table_disp)
-    a.jmp_short("pull_mul_done")
+    a.jmp_short("pull_mul_opp")
     a.label("pull_mul_tuning")                    # the tuning class: its own "Motorkraft", in percent
     a.raw("83 F8 05", "cmp         eax,5")
     a.jcc_short("jne", "pull_mul_done")
@@ -1225,15 +2362,19 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("DA 88 " + _le(TUNE_VALUES + 4), "fimul       dword ptr [eax+%08Xh]" % (TUNE_VALUES + 4))
     disp = (later("hundredth") - a.labels["pull_mul_pc"]) & 0xFFFFFFFF
     a.raw("D8 89 " + _le(disp), "fmul        dword ptr [ecx+%08Xh]" % disp)
-    # "Tempo" above 100 %: a computer kart pulls Tempo / 100 times as hard
-    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
-    a.raw("83 B8 %s 64" % _le(off), "cmp         dword ptr [eax+%08Xh],64h" % off)
+    # "Tempo" above 100 %, in any class: a computer kart pulls Tempo / 100 times as hard
+    a.label("pull_mul_opp")
+    a.call("opp_tempo")
+    a.raw("83 F8 64", "cmp         eax,64h")
     a.jcc_short("jle", "pull_mul_done")
     a.raw("52", "push        edx")
     a.call("pull_human")
     a.raw("5A", "pop         edx")
     a.jcc_short("je", "pull_mul_done")
-    a.raw("DA 88 " + _le(off), "fimul       dword ptr [eax+%08Xh]" % off)
+    a.raw("50", "push        eax")
+    a.raw("DA 0C 24", "fimul       dword ptr [esp]")
+    a.raw("58", "pop         eax")
+    disp = (later("hundredth") - a.labels["pull_mul_pc"]) & 0xFFFFFFFF
     a.raw("D8 89 " + _le(disp), "fmul        dword ptr [ecx+%08Xh]" % disp)
     a.label("pull_mul_done")
     a.raw("59", "pop         ecx")
@@ -1374,11 +2515,42 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.raw("8B CE", "mov         ecx,esi")
         a.call(add_fn)
 
+    # "Alles freigeschaltet": what the menus and the track lock read of the progress.
+    # unlock_level: eax = GameParameters; ecx = the highest unlocked class (5 while the switch
+    # is on). Keeps every other register.
+    a.label("unlock_level")
+    a.raw("8B 88 08 FD 00 00", "mov         ecx,dword ptr [eax+0000FD08h]")
+    a.raw("81 B8 %s %s" % (_le(UNLOCK_MARK), _le(UNLOCK_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (UNLOCK_MARK, _imm(UNLOCK_MAGIC)))
+    a.jcc_short("jne", "unlock_level_done")
+    a.raw("B9 05 00 00 00", "mov         ecx,5")
+    a.label("unlock_level_done")
+    a.raw("C3", "ret")
+    # In place of "cmp dword ptr [eax+0FD08h],2" in the class menu (100 cc row): the same flags.
+    a.label("unlock_cmp2")
+    a.raw("51", "push        ecx")
+    a.call("unlock_level")
+    a.raw("83 F9 02", "cmp         ecx,2")
+    a.raw("59", "pop         ecx")
+    a.raw("C3", "ret")
+    # In place of "test dword ptr [eax+0FD0Ch],edx" in the track lock (edx = the class's bit):
+    # nonzero while the switch is on.
+    a.label("unlock_test")
+    a.raw("81 B8 %s %s" % (_le(UNLOCK_MARK), _le(UNLOCK_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (UNLOCK_MARK, _imm(UNLOCK_MAGIC)))
+    a.jcc_short("je", "unlock_test_on")
+    a.raw("85 90 0C FD 00 00", "test        dword ptr [eax+0000FD0Ch],edx")
+    a.raw("C3", "ret")
+    a.label("unlock_test_on")
+    a.raw("85 D2", "test        edx,edx")
+    a.raw("C3", "ret")
+
     a.label("engine_menu_item")
     a.raw("83 EC 1C", "sub         esp,1Ch")
     for cls, text_id, locked_id in ((3, TXT_200CC, TXT_200CC_LOCKED), (4, TXT_250CC, TXT_250CC_LOCKED)):
         a.call(GP_GET)
-        a.raw("83 B8 08 FD 00 00 %02X" % cls, "cmp         dword ptr [eax+0000FD08h],%d" % cls)
+        a.call("unlock_level")
+        a.raw("83 F9 %02X" % cls, "cmp         ecx,%d" % cls)
         a.jcc_short("jl", "engine_menu_locked_%d" % cls)
         menu_item(text_id, ADD_BUTTON, MENU_Y_CLASSES[cls])
         a.jmp_short("engine_menu_done_%d" % cls)
@@ -1389,7 +2561,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.call(STR_DTOR)
     # the tuning class: an empty label (it is not shown) until championship 2 is won in 250 cc
     a.call(GP_GET)
-    a.raw("83 B8 08 FD 00 00 05", "cmp         dword ptr [eax+0000FD08h],5")
+    a.call("unlock_level")
+    a.raw("83 F9 05", "cmp         ecx,5")
     a.jcc_short("jl", "engine_menu_locked_5")
     menu_item(TXT_TUNING, ADD_BUTTON, MENU_Y_CLASSES[5])
     a.jmp_short("engine_menu_done_5")
@@ -1464,14 +2637,14 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 C1 %02X" % (PRESETS_18 - OLD_PRESETS), "add         ecx,%s" % _imm(PRESETS_18 - OLD_PRESETS))   # 1.8 numbers
     a.label("values8_last")
     a.raw("89 88 " + _le(TUNE_LAST), "mov         dword ptr [eax+%08Xh],ecx" % TUNE_LAST)
-    a.raw("C7 80 %s %s" % (_le(OLD_TUNE_LAST), _le(TUNE_ROWS[-1][3])),
-          "mov         dword ptr [eax+%08Xh],%s" % (OLD_TUNE_LAST, _imm(TUNE_ROWS[-1][3])))
+    a.raw("C7 80 %s %s" % (_le(OLD_TUNE_LAST), _le(TUNE_ROWS[ROW_GRAVITY - 1][3])),
+          "mov         dword ptr [eax+%08Xh],%s" % (OLD_TUNE_LAST, _imm(TUNE_ROWS[ROW_GRAVITY - 1][3])))
     a.raw("8D 90 " + _le(OWN_BASE + OWN_FILLED), "lea         edx,[eax+%08Xh]" % (OWN_BASE + OWN_FILLED))
     a.raw("B9 " + _le(OWN_SLOTS), "mov         ecx,%s" % _imm(OWN_SLOTS))
     a.label("values8_slot")
     a.raw("66 83 3A 00", "cmp         word ptr [edx],0")
     a.jcc_short("je", "values8_empty")
-    a.raw("66 C7 02 " + struct.pack("<H", TUNE_ROWS[-1][3]).hex(" "), "mov         word ptr [edx],%s" % _imm(TUNE_ROWS[-1][3]))
+    a.raw("66 C7 02 " + struct.pack("<H", TUNE_ROWS[ROW_GRAVITY - 1][3]).hex(" "), "mov         word ptr [edx],%s" % _imm(TUNE_ROWS[ROW_GRAVITY - 1][3]))
     a.label("values8_empty")
     a.raw("83 C2 %02X" % OWN_SLOT, "add         edx,%s" % _imm(OWN_SLOT))
     a.raw("49", "dec         ecx")
@@ -1479,13 +2652,10 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("C7 80 %s %s" % (_le(VALUES8_MARK), _le(VALUES8_MAGIC)),
           "mov         dword ptr [eax+%08Xh],%s" % (VALUES8_MARK, _imm(VALUES8_MAGIC)))
     a.label("values8_done")
-    # Up to 1.8 there was no "Gegner": it gets its default (a character number was there)
+    # Up to 1.8 there was no "Gegner" ("Tempo" gets its value further down)
     a.raw("81 B8 %s %s" % (_le(OPP_MARK), _le(OPP_MAGIC)),
           "cmp         dword ptr [eax+%08Xh],%s" % (OPP_MARK, _imm(OPP_MAGIC)))
     a.jcc_short("je", "opp_done")
-    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
-    a.raw("C7 80 %s %s" % (_le(off), _le(TUNE_ROWS[ROW_OPP - 1][3])),
-          "mov         dword ptr [eax+%08Xh],%s" % (off, _imm(TUNE_ROWS[ROW_OPP - 1][3])))
     # ... and the own slots in the "Vorlage" row moved behind the 1.9 presets
     a.raw("8B 88 " + _le(TUNE_LAST), "mov         ecx,dword ptr [eax+%08Xh]" % TUNE_LAST)
     a.raw("83 F9 %02X" % PRESETS_18, "cmp         ecx,%s" % _imm(PRESETS_18))
@@ -1498,17 +2668,24 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("C7 80 %s %s" % (_le(OPP_MARK), _le(OPP_MAGIC)),
           "mov         dword ptr [eax+%08Xh],%s" % (OPP_MARK, _imm(OPP_MAGIC)))
     a.label("opp_done")
-    # ... and the own slots got it in their own table
-    a.raw("81 B8 %s %s" % (_le(OWN_OPP_MARK), _le(OWN_OPP_MAGIC)),
-          "cmp         dword ptr [eax+%08Xh],%s" % (OWN_OPP_MARK, _imm(OWN_OPP_MAGIC)))
-    a.jcc_short("je", "own_opp_done")
-    dflt = TUNE_ROWS[ROW_OPP - 1][3]
-    for k in range(0, 2 * OWN_SLOTS, 4):
-        a.raw("C7 80 %s %s" % (_le(OWN_OPP + k), _le(dflt | dflt << 16)),
-              "mov         dword ptr [eax+%08Xh],%s" % (OWN_OPP + k, _imm(dflt | dflt << 16)))
-    a.raw("C7 80 %s %s" % (_le(OWN_OPP_MARK), _le(OWN_OPP_MAGIC)),
-          "mov         dword ptr [eax+%08Xh],%s" % (OWN_OPP_MARK, _imm(OWN_OPP_MAGIC)))
-    a.label("own_opp_done")
+    # Up to 1.9 "Gegner" had one row: the second gets its default (a character number was there)
+    a.raw("81 B8 %s %s" % (_le(NEW_MARK), _le(NEW_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (NEW_MARK, _imm(NEW_MAGIC)))
+    a.jcc_short("je", "new_row_done")
+    a.raw("C7 80 %s %s" % (_le(NEW_VALUE), _le(NEW_ROW[3])),
+          "mov         dword ptr [eax+%08Xh],%s" % (NEW_VALUE, _imm(NEW_ROW[3])))
+    a.raw("C7 80 %s %s" % (_le(NEW_MARK), _le(NEW_MAGIC)),
+          "mov         dword ptr [eax+%08Xh],%s" % (NEW_MARK, _imm(NEW_MAGIC)))
+    a.label("new_row_done")
+    # Up to 1.9 "Tempo" was a value of the tuning class: it becomes "Standard" once
+    a.raw("81 B8 %s %s" % (_le(STD_MARK), _le(STD_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (STD_MARK, _imm(STD_MAGIC)))
+    a.jcc_short("je", "std_done")
+    a.raw("C7 80 %s %s" % (_le(OPP_VALUE), _le(OPP_STANDARD)),
+          "mov         dword ptr [eax+%08Xh],%s" % (OPP_VALUE, _imm(OPP_STANDARD)))
+    a.raw("C7 80 %s %s" % (_le(STD_MARK), _le(STD_MAGIC)),
+          "mov         dword ptr [eax+%08Xh],%s" % (STD_MARK, _imm(STD_MAGIC)))
+    a.label("std_done")
     a.raw("81 B8 %s %s" % (_le(TUNE_MARK), _le(TUNE_MAGIC)),
           "cmp         dword ptr [eax+%08Xh],%s" % (TUNE_MARK, _imm(TUNE_MAGIC)))
     a.jcc_short("je", "tune_defaults_done")
@@ -1517,13 +2694,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
           "mov         dword ptr [eax+%08Xh],%s" % (TUNE_MARK, _imm(TUNE_MAGIC)))
     a.raw("C7 80 %s %s" % (_le(TUNE_LAST), _le(TUNE_PRESET_DEFAULT)),
           "mov         dword ptr [eax+%08Xh],%s" % (TUNE_LAST, _imm(TUNE_PRESET_DEFAULT)))
-    a.raw("33 C9", "xor         ecx,ecx")
+    a.raw("33 C9", "xor         ecx,ecx")           # the eight values; "Gegner" is not the tuning class's
     a.label("tune_defaults_next")
     disp = tdisp("tune_rows") + 6 & 0xFFFFFFFF
     a.raw("0F B7 94 CD " + _le(disp), "movzx       edx,word ptr [ebp+ecx*8+%08Xh]" % disp)   # the row's default
     a.raw("89 94 88 " + _le(TUNE_VALUES), "mov         dword ptr [eax+ecx*4+%08Xh],edx" % TUNE_VALUES)
     a.raw("41", "inc         ecx")
-    a.raw("83 F9 %02X" % len(TUNE_ROWS), "cmp         ecx,%d" % len(TUNE_ROWS))
+    a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "tune_defaults_next")
     # tracks 5-8 and Meisterschaft 2 are open in the tuning class from the start
     a.raw("83 88 0C FD 00 00 20", "or          dword ptr [eax+0000FD0Ch],20h")
@@ -1585,27 +2762,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("66 83 7F %02X 00" % OWN_FILLED, "cmp         word ptr [edi+%s],0" % _imm(OWN_FILLED))
     a.raw("C3", "ret")
     a.label("tune_preset_ptr_builtin")
-    a.raw("6B F8 %02X" % (2 * len(TUNE_ROWS)), "imul        edi,eax,%s" % _imm(2 * len(TUNE_ROWS)))
+    a.raw("6B F8 %02X" % (2 * PRESET_VALUES), "imul        edi,eax,%s" % _imm(2 * PRESET_VALUES))
     a.raw("8D BC 3D " + _le(tdisp("tune_presets")), "lea         edi,[ebp+edi+%08Xh]" % tdisp("tune_presets"))
     a.raw("C3", "ret")                            # not zero: "not equal"
 
-    # The address of a preset's "Tempo" word: behind the eight words of a built-in preset, in
-    # the table OWN_OPP for an own slot. edi = the preset's words (from tune_preset_ptr),
-    # ebx = GameParameters. Returns edx.
-    a.label("preset_opp")
-    a.raw("8B D7", "mov         edx,edi")
-    a.raw("2B D3", "sub         edx,ebx")
-    a.raw("81 EA " + _le(OWN_BASE), "sub         edx,%s" % _imm(OWN_BASE))
-    a.raw("81 FA " + _le(OWN_SLOT * OWN_SLOTS), "cmp         edx,%s" % _imm(OWN_SLOT * OWN_SLOTS))
-    a.jcc_short("jae", "preset_opp_builtin")
-    a.raw("C1 EA 04", "shr         edx,4")                    # slot * 20h -> slot * 2
-    a.raw("8D 94 1A " + _le(OWN_OPP), "lea         edx,[edx+ebx+%08Xh]" % OWN_OPP)
-    a.raw("C3", "ret")
-    a.label("preset_opp_builtin")
-    a.raw("8D 57 %02X" % (2 * PRESET_VALUES), "lea         edx,[edi+%s]" % _imm(2 * PRESET_VALUES))
-    a.raw("C3", "ret")
-
-    # Do the preset at edi and the nine values agree? Returns "equal" if they do.
+    # Do the preset at edi and the eight values agree? Returns "equal" if they do.
     # ebx = GameParameters. Clobbers ecx, edx.
     a.label("tune_equal")
     a.raw("33 C9", "xor         ecx,ecx")
@@ -1616,14 +2777,10 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "tune_equal_next")
-    a.call("preset_opp")                          # and "Tempo" (signed)
-    a.raw("0F BF 12", "movsx       edx,word ptr [edx]")
-    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
-    a.raw("3B 93 " + _le(off), "cmp         edx,dword ptr [ebx+%08Xh]" % off)
-    a.label("tune_equal_done")
+    a.label("tune_equal_done")                    # (after the last value the count compares "equal")
     a.raw("C3", "ret")
 
-    # The preset at edi into the nine values. ebx = GameParameters. Clobbers eax, ecx, edx.
+    # The preset at edi into the eight values. ebx = GameParameters. Clobbers eax, ecx.
     a.label("preset_load")
     a.raw("33 C9", "xor         ecx,ecx")
     a.label("preset_load_next")
@@ -1632,9 +2789,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "preset_load_next")
-    a.call("preset_opp")
-    a.raw("0F BF 02", "movsx       eax,word ptr [edx]")
-    a.raw("89 83 " + _le(off), "mov         dword ptr [ebx+%08Xh],eax" % off)
     a.raw("C3", "ret")
 
     # Which preset do the eight values equal? The one copied last if it still does, else the
@@ -1735,8 +2889,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8D 87 " + _le(disp), "lea         eax,[edi+%08Xh]" % disp)    # row 8: text 233
     a.raw("83 FF %02X" % ROW_GRAVITY, "cmp         edi,%d" % ROW_GRAVITY)
     a.jcc_short("jbe", "tune_text_id")
-    disp = TXT_OPP_ROW - ROW_OPP
-    a.raw("8D 87 " + _le(disp), "lea         eax,[edi+%08Xh]" % disp)    # row 9: its own text
+    a.raw("B8 " + _le(TXT_NEW_ROW), "mov         eax,%s" % _imm(TXT_NEW_ROW))   # row 10
+    a.raw("83 FF %02X" % ROW_OPP, "cmp         edi,%d" % ROW_OPP)
+    a.jcc_short("ja", "tune_text_id")
+    a.raw("B8 " + _le(TXT_OPP_ROW), "mov         eax,%s" % _imm(TXT_OPP_ROW))   # row 9: "Tempo" ...
+    a.raw("83 F9 %02X" % (OPP_STANDARD & 0xFF), "cmp         ecx,%s" % _imm(OPP_STANDARD))
+    a.jcc_short("jne", "tune_text_id")
+    a.raw("B8 " + _le(TXT_OPP_ROW_STD), "mov         eax,%s" % _imm(TXT_OPP_ROW_STD))   # ... or "Standard", its lowest step
     a.label("tune_text_id")
     a.raw("50", "push        eax")
     a.raw("56", "push        esi")
@@ -1776,7 +2935,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 C4 30", "add         esp,30h")
     a.jmp_short("own_text_done")
     a.label("own_text_values")
-    a.raw("0F BF 84 4B " + _le(OWN_OPP), "movsx       eax,word ptr [ebx+ecx*2+%08Xh]" % OWN_OPP)   # its "Tempo"
     a.raw("C1 E1 05", "shl         ecx,5")
     a.raw("8D 94 0B " + _le(OWN_BASE), "lea         edx,[ebx+ecx+%08Xh]" % OWN_BASE)
     a.raw("66 83 7A %02X 00" % OWN_FILLED, "cmp         word ptr [edx+%s],0" % _imm(OWN_FILLED))
@@ -1787,7 +2945,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 C4 08", "add         esp,8")
     a.jmp_short("own_text_done")
     a.label("own_text_full")
-    a.raw("8B C8", "mov         ecx,eax")
     a.raw("8B C7", "mov         eax,edi")
     a.call("values_text")
     a.label("own_text_done")
@@ -1795,8 +2952,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5B", "pop         ebx")
     a.raw("C3", "ret")
 
-    # The values text of an own slot (text 269, grouped "Kart" / "Welt" / "Gegner"). edx = the
-    # eight values as words, ecx = its "Tempo", eax = buffer (OWN_VALUES_BUF bytes),
+    # The values text of an own slot (text 269, grouped "Kart" / "Welt"). edx = the
+    # eight values as words, eax = buffer (OWN_VALUES_BUF bytes),
     # ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("values_text")
     a.raw("56", "push        esi")
@@ -1808,7 +2965,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.label("values_text_id")
     a.raw("57", "push        edi")
     a.raw("8B F8", "mov         edi,eax")
-    a.raw("51", "push        ecx")                # the last argument
+    a.raw("51", "push        ecx")                # (one argument more than the formats take; up to 1.9 "Tempo")
     a.raw("B9 %s" % _le(PRESET_VALUES - 1), "mov         ecx,%d" % (PRESET_VALUES - 1))
     a.label("values_text_push")                   # the percent values, the last one first
     a.raw("0F B7 04 4A", "movzx       eax,word ptr [edx+ecx*2]")
@@ -1829,8 +2986,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5F", "pop         edi")
     a.raw("C3", "ret")
 
-    # The values of one group of the tuning page: eax = 0 "Kart" (seven values), 1 "Welt",
-    # 2 "Gegner"; edx = buffer (100h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
+    # The values of one group of the tuning page: eax = 0 "Kart" (seven values), 1 "Welt";
+    # edx = buffer (100h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("group_text")
     a.raw("53", "push        ebx")
     a.raw("56", "push        esi")
@@ -1853,16 +3010,10 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("50", "push        eax")
     a.raw("68 " + _le(TXT_GROUP_TEXTS[0]), "push        %s" % _imm(TXT_GROUP_TEXTS[0]))
     a.jmp_short("group_text_print")
-    a.label("group_text_one")                     # "Welt": value 8, "Gegner": value 9
-    assert ROW_GRAVITY == KART_ROWS + 1 and ROW_OPP == KART_ROWS + 2
-    off = TUNE_VALUES + 4 * (KART_ROWS - 1)
-    a.raw("FF B4 83 " + _le(off), "push        dword ptr [ebx+eax*4+%08Xh]" % off)
-    a.raw("B9 " + _le(TXT_GROUP_TEXTS[1]), "mov         ecx,%s" % _imm(TXT_GROUP_TEXTS[1]))
-    a.raw("83 F8 01", "cmp         eax,1")
-    a.jcc_short("je", "group_text_id")
-    a.raw("B9 " + _le(TXT_GROUP_TEXTS[2]), "mov         ecx,%s" % _imm(TXT_GROUP_TEXTS[2]))
-    a.label("group_text_id")
-    a.raw("51", "push        ecx")
+    a.label("group_text_one")                     # "Welt": value 8
+    off = TUNE_VALUES + 4 * (ROW_GRAVITY - 1)
+    a.raw("FF B3 " + _le(off), "push        dword ptr [ebx+%08Xh]" % off)
+    a.raw("68 " + _le(TXT_GROUP_TEXTS[1]), "push        %s" % _imm(TXT_GROUP_TEXTS[1]))
     a.label("group_text_print")
     a.raw("56", "push        esi")
     a.call("tune_printf")
@@ -1870,6 +3021,35 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5F", "pop         edi")
     a.raw("5E", "pop         esi")
     a.raw("5B", "pop         ebx")
+    a.raw("C3", "ret")
+
+    # The two values of "Gegner" in one line ("Tempo Standard, verbessert 0"), without tags; a
+    # save without the marker shows "Standard" and 0, as opp_tempo and the driver take it.
+    # edx = buffer (40h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
+    a.label("opp_text")
+    a.raw("57", "push        edi")
+    a.raw("8B FC", "mov         edi,esp")
+    t_mov("eax", GP_POINTER)
+    a.raw("81 B8 %s %s" % (_le(STD_MARK), _le(STD_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (STD_MARK, _imm(STD_MAGIC)))
+    a.jcc_short("je", "opp_text_values")
+    a.raw("6A 00", "push        0")
+    a.jmp_short("opp_text_std")
+    a.label("opp_text_values")
+    a.raw("FF B0 " + _le(NEW_VALUE), "push        dword ptr [eax+%08Xh]" % NEW_VALUE)
+    a.raw("8B 88 " + _le(OPP_VALUE), "mov         ecx,dword ptr [eax+%08Xh]" % OPP_VALUE)
+    a.raw("83 F9 %02X" % (OPP_STANDARD & 0xFF), "cmp         ecx,%s" % _imm(OPP_STANDARD))
+    a.jcc_short("je", "opp_text_std")
+    a.raw("51", "push        ecx")
+    a.raw("68 " + _le(TXT_OPP_VALUES), "push        %s" % _imm(TXT_OPP_VALUES))
+    a.jmp_short("opp_text_print")
+    a.label("opp_text_std")
+    a.raw("68 " + _le(TXT_OPP_VALUES_STD), "push        %s" % _imm(TXT_OPP_VALUES_STD))
+    a.label("opp_text_print")
+    a.raw("52", "push        edx")
+    a.call("tune_printf")
+    a.raw("8B E7", "mov         esp,edi")
+    a.raw("5F", "pop         edi")
     a.raw("C3", "ret")
 
     # ecx = a std::string, edx = a text: the string gets the text. Clobbers eax, ecx, edx.
@@ -1925,7 +3105,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
 
     # In place of the last page builder that Menu::SetPage calls (ecx = menu,
     # [esp+4] = address of the page number; the menu's own page number is still the old
-    # one): builds the tuning page, the pages "Kart" and "Welt" and the page of own presets.
+    # one): builds the tuning page, the pages "Kart", "Welt" and "Gegner" and the page of own
+    # presets, and adds to the main menu, the name page and the championship page.
     # Any page that is built ends a renaming on the name page.
     def limit_label(y_push_hex, y_push_text, eax_hex, eax_text, routine="tune_limit_text", size=0x100):
         """Adds the "Am Limit" label (an empty text while the values are not am Limit), or the label
@@ -1969,6 +3150,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_near("je", "main_build")
     a.raw("83 F8 %02X" % PAGE_NAME, "cmp         eax,%s" % _imm(PAGE_NAME))
     a.jcc_near("je", "name_build")
+    a.raw("83 F8 %02X" % PAGE_CHAMP, "cmp         eax,%s" % _imm(PAGE_CHAMP))
+    a.jcc_near("je", "champ_build")
     a.raw("83 F8 %02X" % PAGE_OWN, "cmp         eax,%s" % _imm(PAGE_OWN))
     a.jcc_near("je", "own_build")
     for page, _, _ in SUB_PAGES:
@@ -1988,17 +3171,17 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8B D4", "mov         edx,esp")
     a.call("tune_text")
     arrow_row("68 " + _le(TUNE_Y_PRESET), "push        %s" % _imm(TUNE_Y_PRESET))
-    buttons = (TXT_KART_BUTTON, TXT_WORLD_BUTTON, TXT_OPP_BUTTON, TXT_TUNE_RESET, TXT_OWN_BUTTON, TXT_NEXT, TXT_BACK)
+    buttons = (TXT_KART_BUTTON, TXT_WORLD_BUTTON, TXT_TUNE_RESET, TXT_OWN_BUTTON, TXT_NEXT, TXT_BACK)
     assert len(buttons) == len(TUNE_Y_BUTTONS) == TUNE_ITEM_BACK
-    for text_id, y in zip(buttons, TUNE_Y_BUTTONS):   # items 1..7
+    for text_id, y in zip(buttons, TUNE_Y_BUTTONS):   # items 1..6
         a.raw("B8 " + _le(text_id), "mov         eax,%s" % _imm(text_id))
         a.raw("BA " + _le(y), "mov         edx,%s" % _imm(y))
         a.call("tune_button")
     y = TUNE_Y_LIMIT["tuning"]
     assert TUNE_LIMIT_ITEM["tuning"] == TUNE_ITEM_BACK + 1 and TUNE_ITEM_GROUPS == TUNE_ITEM_BACK + 2
     limit_label("68 " + _le(y), "push        %s" % _imm(y),
-               "B8 " + _le(PAGE_TUNING), "mov         eax,%s" % _imm(PAGE_TUNING))   # item 8
-    for k, y in enumerate(TUNE_Y_GROUPS):                       # items 9..11: under "Kart", "Welt", "Gegner"
+               "B8 " + _le(PAGE_TUNING), "mov         eax,%s" % _imm(PAGE_TUNING))   # item 7
+    for k, y in enumerate(TUNE_Y_GROUPS):                       # items 8..9: under "Kart", "Welt"
         limit_label("68 " + _le(y), "push        %s" % _imm(y),
                    "B8 " + _le(k), "mov         eax,%s" % _imm(k), "group_text")
     a.raw("B8 " + _le(TXT_TUNE_TITLE), "mov         eax,%s" % _imm(TXT_TUNE_TITLE))
@@ -2007,6 +3190,81 @@ def build_payload(base, factors, pulls, known=None, version=None):
           "mov         dword ptr [esi+00000148h],%s" % _imm(TUNE_ITEM_NEXT))   # "Weiter" is selected
     a.raw("61", "popad")
     a.raw("C2 04 00", "ret         4")
+
+    # The championship page, after the game built it (ecx = menu): with the tuning class unlocked
+    # the championship row moves to the top and the four track rows to the right column (the
+    # picture goes left in champ_rect), and the button "Gegner" (CHAMP_ITEM_OPP) and a label with
+    # its two values follow as the last items. The game builds this page in every frame it shows.
+    def item_float(item, field, value):           # a float of an item: +24h its x from the middle, +28h its y
+        off = MENU_ITEM_SIZE * item + field
+        bits = struct.unpack("<I", struct.pack("<f", value))[0]
+        a.raw("C7 80 %s %s" % (_le(off), _le(bits)), "mov         dword ptr [eax+%08Xh],%s" % (off, _imm(bits)))
+
+    a.label("champ_build")
+    a.raw("51", "push        ecx")
+    a.raw("FF 74 24 08", "push        dword ptr [esp+8]")
+    a.call(PAGE_BUILD_LAST)
+    a.raw("59", "pop         ecx")
+    a.raw("60", "pushad")
+    a.raw("8B F1", "mov         esi,ecx")
+    a.call("tune_base")
+    t_mov("ebx", GP_POINTER)
+    a.raw("85 DB", "test        ebx,ebx")
+    a.jcc_near("je", "champ_build_done")
+    a.raw("8B C3", "mov         eax,ebx")
+    a.call("unlock_level")
+    a.raw("83 F9 05", "cmp         ecx,5")
+    a.jcc_near("jl", "champ_build_done")
+    a.raw("8B 86 34 01 00 00", "mov         eax,dword ptr [esi+00000134h]")
+    a.raw("8B 8E 38 01 00 00", "mov         ecx,dword ptr [esi+00000138h]")
+    a.raw("2B C8", "sub         ecx,eax")
+    a.raw("81 F9 " + _le(CHAMP_ITEMS * MENU_ITEM_SIZE), "cmp         ecx,%s" % _imm(CHAMP_ITEMS * MENU_ITEM_SIZE))
+    a.jcc_near("jne", "champ_build_done")
+    item_float(0, 0x28, CHAMP_Y_CHAMP)
+    for k, y in enumerate(CHAMP_Y_TRACKS):        # items 1..4
+        item_float(k + 1, 0x24, CHAMP_X_TRACKS)
+        item_float(k + 1, 0x28, y)
+    a.call("tune_defaults")
+    a.raw("B8 " + _le(TXT_CHAMP_OPP), "mov         eax,%s" % _imm(TXT_CHAMP_OPP))
+    a.raw("BA " + _le(CHAMP_Y_OPP), "mov         edx,%s" % _imm(CHAMP_Y_OPP))
+    a.call("tune_button")
+    a.raw("81 EC C0 00 00 00", "sub         esp,0C0h")       # +0 the values (40h), +40h the label's text
+    a.raw("8B D4", "mov         edx,esp")
+    a.call("opp_text")
+    a.raw("8B C4", "mov         eax,esp")
+    a.raw("50", "push        eax")
+    a.raw("68 " + _le(TXT_CHAMP_OPP_VALUES), "push        %s" % _imm(TXT_CHAMP_OPP_VALUES))
+    a.raw("8D 44 24 48", "lea         eax,[esp+48h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.raw("68 " + _le(CHAMP_Y_OPP_VALUES), "push        %s" % _imm(CHAMP_Y_OPP_VALUES))
+    a.raw("8D 44 24 44", "lea         eax,[esp+44h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.raw("81 C4 C0 00 00 00", "add         esp,0C0h")
+    a.label("champ_build_done")
+    a.raw("61", "popad")
+    a.raw("C2 04 00", "ret         4")
+
+    # In place of the four pushes of the championship page's picture (height, width, y, x; esi =
+    # menu): on the left while the page has the button "Gegner", else where the game has it.
+    a.label("champ_rect")
+    a.raw("8B 86 38 01 00 00", "mov         eax,dword ptr [esi+00000138h]")
+    a.raw("2B 86 34 01 00 00", "sub         eax,dword ptr [esi+00000134h]")
+    size = (CHAMP_ITEM_OPP + 2) * MENU_ITEM_SIZE
+    a.raw("3D " + _le(size), "cmp         eax,%s" % _imm(size))
+    a.jcc_short("je", "champ_rect_left")
+    for v in reversed(CHAMP_PICTURE_STOCK):
+        bits = struct.unpack("<I", struct.pack("<f", v))[0]
+        a.raw("68 " + _le(bits), "push        %s" % _imm(bits))
+    a.jmp(CHAMP_RECT_BACK)
+    a.label("champ_rect_left")
+    for v in reversed(CHAMP_PICTURE):
+        bits = struct.unpack("<I", struct.pack("<f", v))[0]
+        a.raw("68 " + _le(bits), "push        %s" % _imm(bits))
+    a.jmp(CHAMP_RECT_BACK)
 
     # The main menu: the game's page, then the patch version under the buttons. ecx = menu.
     a.label("main_build")
@@ -2114,8 +3372,10 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("BF " + _le(TUNE_Y_LIMIT["kart"]), "mov         edi,%s" % _imm(TUNE_Y_LIMIT["kart"]))   # (the text routine clobbers eax)
     a.raw("83 FB %02X" % PAGE_KART, "cmp         ebx,%s" % _imm(PAGE_KART))
     a.jcc_short("je", "sub_build_limit")
-    assert TUNE_Y_LIMIT["world"] == TUNE_Y_LIMIT["opp"] and TUNE_Y_INFO["world"] == TUNE_Y_INFO["opp"]
     a.raw("BF " + _le(TUNE_Y_LIMIT["world"]), "mov         edi,%s" % _imm(TUNE_Y_LIMIT["world"]))
+    a.raw("83 FB %02X" % PAGE_WORLD, "cmp         ebx,%s" % _imm(PAGE_WORLD))
+    a.jcc_short("je", "sub_build_limit")
+    a.raw("BF " + _le(TUNE_Y_LIMIT["opp"]), "mov         edi,%s" % _imm(TUNE_Y_LIMIT["opp"]))
     a.label("sub_build_limit")
     limit_label("57", "push        edi", "8B C3", "mov         eax,ebx")   # behind "Zurück"
     # the explanation of the selected row: empty here, page_update fills it in
@@ -2123,6 +3383,9 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 FB %02X" % PAGE_KART, "cmp         ebx,%s" % _imm(PAGE_KART))
     a.jcc_short("je", "sub_build_info")
     a.raw("BF " + _le(TUNE_Y_INFO["world"]), "mov         edi,%s" % _imm(TUNE_Y_INFO["world"]))
+    a.raw("83 FB %02X" % PAGE_WORLD, "cmp         ebx,%s" % _imm(PAGE_WORLD))
+    a.jcc_short("je", "sub_build_info")
+    a.raw("BF " + _le(TUNE_Y_INFO["opp"]), "mov         edi,%s" % _imm(TUNE_Y_INFO["opp"]))
     a.label("sub_build_info")
     a.raw("6A 00", "push        0")
     a.raw("57", "push        edi")
@@ -2188,9 +3451,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("C2 04 00", "ret         4")
 
     # The pause page, after the game built it (esi = menu): a line with the class and the 60 FPS
-    # switch, in the tuning class with the preset the values match, and then the values.
-    # Stack: +0 class name, +20h "An"/"Aus", +40h preset name, +60h the line, +160h the eight
-    # values as words, +180h the values text.
+    # switch, in the tuning class with the preset the values match, and then the values. In a
+    # race with opponents the two values of "Gegner" follow the top speed, in every class.
+    # Stack: +0 class name, +20h "An"/"Aus", +40h preset name, +60h the line (tuning class),
+    # +160h the eight values (words in the tuning class, else dwords), +180h the values text
+    # (tuning class) or the line with the top speed (the others).
     a.label("pause_info")
     a.raw("C7 86 44 01 00 00 FF FF FF FF", "mov         dword ptr [esi+00000144h],0FFFFFFFFh")   # displaced
     a.raw("60", "pushad")
@@ -2243,8 +3508,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "pause_info_words")
-    a.raw("8B 8B " + _le(TUNE_VALUES + 4 * PRESET_VALUES),
-          "mov         ecx,dword ptr [ebx+%08Xh]" % (TUNE_VALUES + 4 * PRESET_VALUES))   # "Tempo"
     a.raw("8D 94 24 60 01 00 00", "lea         edx,[esp+00000160h]")
     a.raw("8D 84 24 80 01 00 00", "lea         eax,[esp+00000180h]")
     a.raw("56", "push        esi")
@@ -2255,40 +3518,45 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
     a.raw("B8 " + _le(TXT_TOP_PAUSE[0]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[0]))
     a.call("top_text")
+    a.raw("B8 " + _le(TXT_PAUSE_OPP[0]), "mov         eax,%s" % _imm(TXT_PAUSE_OPP[0]))
+    a.call("pause_opp")
     a.raw("68 " + _le(PAUSE_Y_VALUES), "push        %s" % _imm(PAUSE_Y_VALUES))
     a.raw("8D 84 24 84 01 00 00", "lea         eax,[esp+00000184h]")
     a.raw("50", "push        eax")
     a.raw("8B CE", "mov         ecx,esi")
     a.call(ADD_LABEL)
-    a.jmp_short("pause_info_done")
+    a.jmp("pause_info_done")
     a.label("pause_info_plain")
     a.raw("8D 44 24 20", "lea         eax,[esp+20h]")                      # "An" / "Aus"
     a.raw("50", "push        eax")
     a.raw("8D 44 24 04", "lea         eax,[esp+4]")                        # the class
     a.raw("50", "push        eax")
     a.raw("68 " + _le(TXT_PAUSE_PLAIN), "push        %s" % _imm(TXT_PAUSE_PLAIN))
-    a.raw("8D 44 24 6C", "lea         eax,[esp+6Ch]")
+    a.raw("8D 84 24 8C 01 00 00", "lea         eax,[esp+0000018Ch]")
     a.raw("50", "push        eax")
     a.call("tune_printf")
     a.raw("83 C4 10", "add         esp,10h")
     # the top speed of a stock class: the built-in preset of the same number holds its values
     assert all(TUNE_PRESETS[n][1][0] == round(100 * f) for n, f in enumerate((0.9, 1.1, 1.3)))
+    assert PRESET_VALUES == 8
     a.raw("8B 4B 10", "mov         ecx,dword ptr [ebx+10h]")
-    a.raw("8D 04 C9", "lea         eax,[ecx+ecx*8]")
+    a.raw("C1 E1 04", "shl         ecx,4")
     t_lea("edx", "tune_presets")
-    a.raw("8D 14 42", "lea         edx,[edx+eax*2]")
-    a.raw("B9 " + _le(len(TUNE_ROWS) - 1), "mov         ecx,%d" % (len(TUNE_ROWS) - 1))
+    a.raw("03 D1", "add         edx,ecx")
+    a.raw("B9 " + _le(PRESET_VALUES - 1), "mov         ecx,%d" % (PRESET_VALUES - 1))
     a.label("pause_info_class_values")
     a.raw("0F BF 04 4A", "movsx       eax,word ptr [edx+ecx*2]")
     a.raw("89 84 8C 60 01 00 00", "mov         dword ptr [esp+ecx*4+00000160h],eax")
     a.raw("49", "dec         ecx")
     a.jcc_short("jns", "pause_info_class_values")
-    a.raw("8D 7C 24 60", "lea         edi,[esp+60h]")
+    a.raw("8D BC 24 80 01 00 00", "lea         edi,[esp+00000180h]")
     a.raw("8D 94 24 60 01 00 00", "lea         edx,[esp+00000160h]")
     a.raw("B8 " + _le(TXT_TOP_PAUSE[1]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[1]))
     a.call("top_text")
+    a.raw("B8 " + _le(TXT_PAUSE_OPP[1]), "mov         eax,%s" % _imm(TXT_PAUSE_OPP[1]))
+    a.call("pause_opp")
     a.raw("68 " + _le(PAUSE_Y_HEAD), "push        %s" % _imm(PAUSE_Y_HEAD))
-    a.raw("8D 44 24 64", "lea         eax,[esp+64h]")
+    a.raw("8D 84 24 84 01 00 00", "lea         eax,[esp+00000184h]")
     a.raw("50", "push        eax")
     a.raw("8B CE", "mov         ecx,esi")
     a.call(ADD_LABEL)
@@ -2296,6 +3564,23 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("81 C4 00 03 00 00", "add         esp,300h")
     a.raw("61", "popad")
     a.jmp(PAUSE_PAGE_DONE)
+
+    # Appends the two values of "Gegner" to the text at edi, with the format eax (one %s). Not
+    # in a time trial (no opponents). ebx = GameParameters, ebp = tune_T. Clobbers eax, ecx, edx.
+    a.label("pause_opp")
+    a.raw("83 7B 1C 00", "cmp         dword ptr [ebx+1Ch],0")
+    a.jcc_short("je", "pause_opp_done")
+    a.raw("83 EC 40", "sub         esp,40h")
+    a.raw("50", "push        eax")
+    a.raw("8D 54 24 04", "lea         edx,[esp+4]")
+    a.call("opp_text")
+    a.raw("59", "pop         ecx")                # the format
+    a.raw("8B C4", "mov         eax,esp")          # its argument
+    a.raw("8B D7", "mov         edx,edi")
+    a.call("top_text_end")
+    a.raw("83 C4 40", "add         esp,40h")
+    a.label("pause_opp_done")
+    a.raw("C3", "ret")
 
     # Was the action pressed in this frame? eax = its name. Returns "equal" if it was.
     a.label("tune_pressed")
@@ -2358,7 +3643,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
             a.raw("0F BE 06", "movsx       eax,byte ptr [esi]")
         a.raw("01 " + esp_modrm(0, c), "add         dword ptr %s,eax" % esp_ref(c))
     a.raw("47", "inc         edi")
-    a.raw("83 FF %02X" % len(TUNE_ROWS), "cmp         edi,%s" % _imm(len(TUNE_ROWS)))
+    a.raw("83 FF %02X" % PRESET_VALUES, "cmp         edi,%s" % _imm(PRESET_VALUES))
     a.jcc_short("jl", "tune_limit_row")
     for n, (pa, pb, shift) in enumerate(LIMIT_PAIRS):
         ca, cb = LIMIT_CHANNELS.index(pa), LIMIT_CHANNELS.index(pb)
@@ -2390,9 +3675,15 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5E", "pop         esi")
     a.raw("C3", "ret")
 
-    # The "Am Limit" line's text (the same on every page) with the challenge and risk points
-    # (shown from 0 up). edx = buffer (100h bytes), ebp = tune_T. Clobbers eax, ecx, edx.
+    # The "Am Limit" line's text (the same on the tuning pages, empty on "Gegner") with the
+    # challenge and risk points (shown from 0 up). eax = the page, edx = buffer (100h bytes),
+    # ebp = tune_T. Clobbers eax, ecx, edx.
     a.label("tune_limit_text")
+    a.raw("83 F8 %02X" % PAGE_OPP, "cmp         eax,%s" % _imm(PAGE_OPP))
+    a.jcc_short("jne", "tune_limit_text_go")
+    a.raw("C6 02 00", "mov         byte ptr [edx],0")
+    a.raw("C3", "ret")
+    a.label("tune_limit_text_go")
     a.raw("53", "push        ebx")
     a.raw("56", "push        esi")
     a.raw("8B F2", "mov         esi,edx")
@@ -2709,15 +4000,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("47", "inc         edi")
     a.jmp_short("tune_refresh_next")
     a.label("tune_refresh_done")
-    assert TUNE_LIMIT_ITEM["tuning"] == TUNE_LIMIT_ITEM["kart"] and TUNE_LIMIT_ITEM["world"] == TUNE_LIMIT_ITEM["opp"]
     a.raw("B8 " + _le(TUNE_LIMIT_ITEM["tuning"]), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["tuning"]))   # the "Am Limit" label
     a.raw("8B 8E 40 01 00 00", "mov         ecx,dword ptr [esi+00000140h]")
-    a.raw("83 F9 %02X" % PAGE_WORLD, "cmp         ecx,%s" % _imm(PAGE_WORLD))
-    a.jcc_short("je", "tune_refresh_world")
-    a.raw("83 F9 %02X" % PAGE_OPP, "cmp         ecx,%s" % _imm(PAGE_OPP))
-    a.jcc_short("jne", "tune_refresh_limit")
-    a.label("tune_refresh_world")
-    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["world"]), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["world"]))
+    for name, page in (("kart", PAGE_KART), ("world", PAGE_WORLD), ("opp", PAGE_OPP)):
+        a.raw("83 F9 %02X" % page, "cmp         ecx,%s" % _imm(page))
+        a.jcc_short("jne", "tune_refresh_not_" + name)
+        a.raw("B8 " + _le(TUNE_LIMIT_ITEM[name]), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM[name]))
+        a.label("tune_refresh_not_" + name)
     a.label("tune_refresh_limit")
     a.raw("50", "push        eax")
     a.raw("81 EC 00 01 00 00", "sub         esp,100h")
@@ -2729,7 +4018,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.call("item_setstr")
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_TUNING, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_TUNING))
     a.jcc_short("jne", "tune_refresh_end")
-    for k in range(len(TUNE_Y_GROUPS)):          # the tuning page: the values under its three buttons
+    for k in range(len(TUNE_Y_GROUPS)):          # the tuning page: the values under its two buttons
         a.raw("B8 " + _le(k), "mov         eax,%s" % _imm(k))
         a.raw("8B D4", "mov         edx,esp")
         a.call("group_text")
@@ -2759,11 +4048,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 EC 1C", "sub         esp,1Ch")
     get_text("51", "push        ecx")
     a.raw("8B D0", "mov         edx,eax")
-    assert TUNE_LIMIT_ITEM["world"] == TUNE_LIMIT_ITEM["opp"]
     a.raw("B8 " + _le(TUNE_LIMIT_ITEM["kart"] + 1), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["kart"] + 1))
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_KART, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_KART))
     a.jcc_short("je", "tune_info_item")
     a.raw("B8 " + _le(TUNE_LIMIT_ITEM["world"] + 1), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["world"] + 1))
+    a.raw("83 BE 40 01 00 00 %02X" % PAGE_WORLD, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_WORLD))
+    a.jcc_short("je", "tune_info_item")
+    a.raw("B8 " + _le(TUNE_LIMIT_ITEM["opp"] + 1), "mov         eax,%s" % _imm(TUNE_LIMIT_ITEM["opp"] + 1))
     a.label("tune_info_item")
     a.call("item_setstr")
     a.raw("8B CC", "mov         ecx,esp")
@@ -2850,6 +4141,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
 
     a.label("page_update")
     a.raw("8B 81 40 01 00 00", "mov         eax,dword ptr [ecx+00000140h]")
+    a.raw("83 F8 %02X" % PAGE_CHAMP, "cmp         eax,%s" % _imm(PAGE_CHAMP))
+    a.jcc_near("je", "champ_update")
     for page in (PAGE_OWN, PAGE_TUNING, PAGE_KART, PAGE_WORLD):
         a.raw("83 F8 %02X" % page, "cmp         eax,%s" % _imm(page))
         a.jcc_short("je", "page_update_go")
@@ -2880,14 +4173,16 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_short("jne", "tune_sub_back")
     open_page(PAGE_CLASS)
     a.jmp("tune_out")
-    a.label("tune_sub_back")                      # back to the tuning page, on the button that led here
+    a.label("tune_sub_back")                      # back to the page and the button that led here
     a.raw("BF " + _le(TUNE_ITEM_KART), "mov         edi,%s" % _imm(TUNE_ITEM_KART))
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_KART, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_KART))
     a.jcc_short("je", "tune_sub_back_open")
     a.raw("BF " + _le(TUNE_ITEM_WORLD), "mov         edi,%s" % _imm(TUNE_ITEM_WORLD))
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_WORLD, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_WORLD))
     a.jcc_short("je", "tune_sub_back_open")
-    a.raw("BF " + _le(TUNE_ITEM_OPP), "mov         edi,%s" % _imm(TUNE_ITEM_OPP))
+    open_page(PAGE_CHAMP)                         # "Gegner": the championship page
+    select_item(CHAMP_ITEM_OPP)
+    a.jmp("tune_out")
     a.label("tune_sub_back_open")
     open_page(PAGE_TUNING)
     a.raw("89 BE 48 01 00 00", "mov         dword ptr [esi+00000148h],edi")
@@ -2912,9 +4207,9 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jmp("tune_right")
     a.label("tune_buttons")
     a.raw("83 BE 40 01 00 00 %02X" % PAGE_TUNING, "cmp         dword ptr [esi+00000140h],%s" % _imm(PAGE_TUNING))
-    a.jcc_near("jne", "tune_sub_back")            # "Kart", "Welt" and "Gegner" have one button: "Zurück"
+    a.jcc_near("jne", "tune_sub_button")          # "Kart", "Welt" and "Gegner" have one button: "Zurück"
     a.raw("8B 86 48 01 00 00", "mov         eax,dword ptr [esi+00000148h]")
-    for item, page in ((TUNE_ITEM_KART, PAGE_KART), (TUNE_ITEM_WORLD, PAGE_WORLD), (TUNE_ITEM_OPP, PAGE_OPP),
+    for item, page in ((TUNE_ITEM_KART, PAGE_KART), (TUNE_ITEM_WORLD, PAGE_WORLD),
                        (TUNE_ITEM_OWN, PAGE_OWN),
                        (TUNE_ITEM_NEXT, PAGE_CHARACTER), (TUNE_ITEM_BACK, PAGE_CLASS)):
         a.raw("83 F8 %02X" % item, "cmp         eax,%s" % _imm(item))
@@ -2929,6 +4224,10 @@ def build_payload(base, factors, pulls, known=None, version=None):
     open_page(PAGE_TUNING)
     select_item(TUNE_ITEM_RESET)
     a.jmp("tune_out")
+    a.label("tune_sub_button")                    # a detail page: "Zurück", unless no item is selected
+    a.raw("83 BE 48 01 00 00 00", "cmp         dword ptr [esi+00000148h],0")   # (a click beside every item)
+    a.jcc_near("jl", "tune_out")
+    a.jmp("tune_sub_back")
     a.label("tune_no_select")
     t_lea("eax", STR_MENU_LEFT)
     a.call("tune_pressed")
@@ -3010,10 +4309,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("41", "inc         ecx")
     a.raw("83 F9 %02X" % PRESET_VALUES, "cmp         ecx,%d" % PRESET_VALUES)
     a.jcc_short("jb", "own_save_copy")            # the last value (never 0) marks the slot as filled
-    a.call("preset_opp")                          # "Tempo" into the slot's word of OWN_OPP
-    off = TUNE_VALUES + 4 * (ROW_OPP - 1)
-    a.raw("8B 83 " + _le(off), "mov         eax,dword ptr [ebx+%08Xh]" % off)
-    a.raw("66 89 02", "mov         word ptr [edx],ax")
     a.jmp("own_refresh")
     a.label("own_not_save")
     a.raw("83 F8 04", "cmp         eax,4")
@@ -3099,6 +4394,68 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5B", "pop         ebx")
     a.raw("C2 04 00", "ret         4")
 
+    # The championship page (ecx = menu, [esp+4] = frame time) with the button "Gegner" behind
+    # the game's items (and a label behind it). The game steps through the items by their number, so "menu down" would reach
+    # the button behind "Zurück". Before the game's handler runs, the selected item is set so
+    # that the game's step lands where the page shows it: the last track row (the championship,
+    # while the tracks are labels) -> the button -> "Starte Meisterschaft". "menu select" on the
+    # button opens the page "Gegner"; the game's handler does nothing for that item.
+    def champ_step(frm, to, label):               # from item `frm`: the game steps on from `to`
+        a.raw("B8 " + _le(to), "mov         eax,%s" % _imm(to))
+        a.raw("83 FF %02X" % frm, "cmp         edi,%s" % _imm(frm))
+        a.jcc_short("je", label)
+
+    a.label("champ_update")
+    a.raw("53", "push        ebx")
+    a.raw("56", "push        esi")
+    a.raw("57", "push        edi")
+    a.raw("55", "push        ebp")
+    a.raw("8B F1", "mov         esi,ecx")
+    a.call("tune_base")
+    a.raw("8B 86 38 01 00 00", "mov         eax,dword ptr [esi+00000138h]")
+    a.raw("2B 86 34 01 00 00", "sub         eax,dword ptr [esi+00000134h]")
+    size = (CHAMP_ITEM_OPP + 2) * MENU_ITEM_SIZE
+    a.raw("3D " + _le(size), "cmp         eax,%s" % _imm(size))
+    a.jcc_near("jne", "champ_update_game")        # no button (the tuning class is locked)
+    a.raw("8B BE 48 01 00 00", "mov         edi,dword ptr [esi+00000148h]")   # the selected item
+    t_lea("eax", STR_MENU_DOWN)
+    a.call("tune_pressed")
+    a.jcc_short("jne", "champ_no_down")
+    champ_step(CHAMP_ITEM_OPP, CHAMP_ITEM_START - 1, "champ_set")
+    champ_step(CHAMP_ITEM_BACK, -1, "champ_set")
+    champ_step(4, CHAMP_ITEM_OPP - 1, "champ_set")
+    a.raw("85 FF", "test        edi,edi")
+    a.jcc_short("jne", "champ_select")
+    a.raw("8B 8E 34 01 00 00", "mov         ecx,dword ptr [esi+00000134h]")
+    a.raw("83 79 %02X 00" % MENU_ITEM_SIZE, "cmp         dword ptr [ecx+%s],0" % _imm(MENU_ITEM_SIZE))   # item 1: a label?
+    a.jcc_short("jne", "champ_select")
+    a.jmp_short("champ_set")
+    a.label("champ_no_down")
+    t_lea("eax", STR_MENU_UP)
+    a.call("tune_pressed")
+    a.jcc_short("jne", "champ_select")
+    champ_step(CHAMP_ITEM_START, CHAMP_ITEM_OPP + 1, "champ_set")
+    champ_step(CHAMP_ITEM_OPP, CHAMP_ITEM_START, "champ_set")   # (the game skips the tracks while they are labels)
+    champ_step(0, CHAMP_ITEM_BACK + 1, "champ_set")
+    a.jmp_short("champ_select")
+    a.label("champ_set")
+    a.raw("89 86 48 01 00 00", "mov         dword ptr [esi+00000148h],eax")
+    a.label("champ_select")
+    t_lea("eax", STR_MENU_SELECT)
+    a.call("tune_pressed")
+    a.jcc_short("jne", "champ_update_game")
+    a.raw("83 BE 48 01 00 00 %02X" % CHAMP_ITEM_OPP, "cmp         dword ptr [esi+00000148h],%s" % _imm(CHAMP_ITEM_OPP))
+    a.jcc_short("jne", "champ_update_game")
+    open_page(PAGE_OPP)
+    a.jmp("tune_out")
+    a.label("champ_update_game")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.raw("5D", "pop         ebp")
+    a.raw("5F", "pop         edi")
+    a.raw("5E", "pop         esi")
+    a.raw("5B", "pop         ebx")
+    a.jmp(PAGE_UPDATE_MAIN)
+
     # In place of the call that handles the result pages, the name entry among them
     # (ecx = menu, [esp+4] = frame time): while a slot is renamed, "Weiter" stores the typed
     # name in the slot and "menu back" leaves it as it was; both return to the page of own
@@ -3180,6 +4537,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.raw("C1 E8 08", "shr         eax,8")
         a.raw("3D " + magic, "cmp         eax,%s" % _imm(PHYS_MAGIC))
 
+    def unlock_flag():                   # flags: equal = "Alles freigeschaltet" is on; clobbers eax, ecx
+        a.call(GP_GET)
+        a.raw("81 B8 %s %s" % (_le(UNLOCK_MARK), _le(UNLOCK_MAGIC)),
+              "cmp         dword ptr [eax+%08Xh],%s" % (UNLOCK_MARK, _imm(UNLOCK_MAGIC)))
+
     # Wheel spring/damper -> the solver's soft-contact pair, once per wheel and step.
     # Stock:  P0 = 1 / (dt * (c + k*dt))      P1 = k*dt / (c + k*dt)
     # The solver uses 1/P0 as damper and P1/(P0*dt) as spring, i.e. the spring is
@@ -3240,21 +4602,27 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.raw("8B CC", "mov         ecx,esp")
         a.call(STR_DTOR)
 
+    def switch_value(flag_fn, y):        # the value item of a switch: "Aus" / "An" with arrows
+        flag_fn()
+        a.raw("0F 94 C0", "sete        al")
+        a.raw("0F B6 C0", "movzx       eax,al")
+        a.raw("05 " + _le(TXT_PHYS_OFF), "add         eax,%s" % _imm(TXT_PHYS_OFF))
+        a.raw("53", "push        ebx")
+        a.raw("50", "push        eax")
+        a.raw("8D 44 24 08", "lea         eax,[esp+8]")
+        a.raw("50", "push        eax")
+        text_to_item(y, ADD_BUTTON)
+        a.raw("C7 00 03 00 00 00", "mov         dword ptr [eax],3")      # value item with arrows, like "Qualität"
+        drop_temp()
+
     a.label("options_items")
     a.raw("83 EC 1C", "sub         esp,1Ch")
+    add_item(TXT_UNLOCK_LABEL, OPTIONS_Y_UNLOCK_LABEL, ADD_LABEL)
+    drop_temp()
+    switch_value(unlock_flag, OPTIONS_Y_UNLOCK_VALUE)
     add_item(TXT_PHYS_LABEL, OPTIONS_Y_PHYS_LABEL, ADD_LABEL)
     drop_temp()
-    phys_flag()
-    a.raw("0F 94 C0", "sete        al")
-    a.raw("0F B6 C0", "movzx       eax,al")
-    a.raw("05 " + _le(TXT_PHYS_OFF), "add         eax,%s" % _imm(TXT_PHYS_OFF))
-    a.raw("53", "push        ebx")
-    a.raw("50", "push        eax")
-    a.raw("8D 44 24 08", "lea         eax,[esp+8]")
-    a.raw("50", "push        eax")
-    text_to_item(OPTIONS_Y_PHYS_VALUE, ADD_BUTTON)
-    a.raw("C7 00 03 00 00 00", "mov         dword ptr [eax],3")      # value item with arrows, like "Qualität"
-    drop_temp()
+    switch_value(phys_flag, OPTIONS_Y_PHYS_VALUE)
     add_item(TXT_BACK_OPTIONS, OPTIONS_Y_BACK, ADD_BUTTON)
     drop_temp()
     a.raw("83 C4 1C", "add         esp,1Ch")
@@ -3262,9 +4630,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8D 8C 24 A0 01 00 00", "lea         ecx,[esp+000001A0h]")  # displaced
     a.jmp(0x004206F8)
 
-    # Flip the switch, refresh its menu text, play the menu's toggle sound.
+    # Flip a switch, refresh its menu text, play the menu's toggle sound.
     # esi = menu; keeps ebx, esi, edi, ebp.
-    item_text = OPTIONS_ITEM_PHYS * MENU_ITEM_SIZE + 8
     a.label("phys_toggle")
     a.call(GP_GET)
     a.raw("8B 48 4C", "mov         ecx,dword ptr [eax+4Ch]")
@@ -3276,22 +4643,43 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("81 C9 " + _le(PHYS_MAGIC << 8), "or          ecx,%s" % _imm(PHYS_MAGIC << 8))
     a.label("phys_toggle_store")
     a.raw("89 48 4C", "mov         dword ptr [eax+4Ch],ecx")
-    a.raw("83 EC 1C", "sub         esp,1Ch")
     a.raw("C1 E9 08", "shr         ecx,8")
+    a.raw("BA " + _le(OPTIONS_ITEM_PHYS * MENU_ITEM_SIZE + 8),
+          "mov         edx,%s" % _imm(OPTIONS_ITEM_PHYS * MENU_ITEM_SIZE + 8))
+    a.jmp_short("switch_text")
+
+    a.label("unlock_toggle")
+    a.call(GP_GET)
+    a.raw("33 C9", "xor         ecx,ecx")
+    a.raw("81 B8 %s %s" % (_le(UNLOCK_MARK), _le(UNLOCK_MAGIC)),
+          "cmp         dword ptr [eax+%08Xh],%s" % (UNLOCK_MARK, _imm(UNLOCK_MAGIC)))
+    a.jcc_short("je", "unlock_toggle_store")
+    a.raw("B9 " + _le(UNLOCK_MAGIC), "mov         ecx,%s" % _imm(UNLOCK_MAGIC))
+    a.label("unlock_toggle_store")
+    a.raw("89 88 " + _le(UNLOCK_MARK), "mov         dword ptr [eax+%08Xh],ecx" % UNLOCK_MARK)
+    a.raw("BA " + _le(OPTIONS_ITEM_UNLOCK * MENU_ITEM_SIZE + 8),
+          "mov         edx,%s" % _imm(OPTIONS_ITEM_UNLOCK * MENU_ITEM_SIZE + 8))
+
+    # ecx = the switch's new state (nonzero: on), edx = offset of its item's text in the item list
+    a.label("switch_text")
+    a.raw("85 C9", "test        ecx,ecx")
     a.raw("0F 95 C1", "setne       cl")
     a.raw("0F B6 C9", "movzx       ecx,cl")
     a.raw("81 C1 " + _le(TXT_PHYS_OFF), "add         ecx,%s" % _imm(TXT_PHYS_OFF))
+    a.raw("83 EC 1C", "sub         esp,1Ch")
+    a.raw("52", "push        edx")
     a.raw("6A 00", "push        0")
     a.raw("51", "push        ecx")
-    a.raw("8D 44 24 08", "lea         eax,[esp+8]")
+    a.raw("8D 44 24 0C", "lea         eax,[esp+0Ch]")
     a.raw("50", "push        eax")
     a.call(TEXTMGR_GET)
     a.raw("8B C8", "mov         ecx,eax")
     a.call(GET_TEXT)
     a.raw("50", "push        eax")
     a.raw("8B 8E 34 01 00 00", "mov         ecx,dword ptr [esi+00000134h]")
-    a.raw("81 C1 " + _le(item_text), "add         ecx,%s" % _imm(item_text))
+    a.raw("03 4C 24 04", "add         ecx,dword ptr [esp+4]")
     a.call(STR_ASSIGN)
+    a.raw("5A", "pop         edx")
     drop_temp()
     a.raw("83 C4 1C", "add         esp,1Ch")
     a.label("play_toggle")                    # also called on its own: the menu's toggle sound
@@ -3318,40 +4706,46 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8B 86 48 01 00 00", "mov         eax,dword ptr [esi+00000148h]")
     a.raw("83 F8 07", "cmp         eax,7")
     a.jcc_short("jb", "options_select_done")          # 1..6: stock items
-    a.raw("83 F8 09", "cmp         eax,9")
+    a.raw("83 F8 %02X" % OPTIONS_ITEM_BACK, "cmp         eax,%s" % _imm(OPTIONS_ITEM_BACK))
     a.jcc_short("ja", "options_select_done")
     a.jcc_short("je", "options_select_back")
-    a.raw("83 F8 08", "cmp         eax,8")
-    a.jcc_short("jne", "options_select_none")
+    a.raw("8B D0", "mov         edx,eax")
+    a.raw("A8 01", "test        al,1")
+    a.jcc_short("jne", "options_select_none")         # 7, 9: the headings; 8, 10: the switches
     a.raw("8B 86 4C 01 00 00", "mov         eax,dword ptr [esi+0000014Ch]")
     a.raw("48", "dec         eax")
     a.raw("83 F8 01", "cmp         eax,1")
     a.jcc_short("ja", "options_select_toggle")
     a.raw("C6 86 9D 01 00 00 01", "mov         byte ptr [esi+0000019Dh],1")   # clicked an arrow: keep the mouse on it
     a.label("options_select_toggle")
-    a.call("phys_toggle")
+    a.raw("8B C2", "mov         eax,edx")
+    a.call("options_toggle")
     a.label("options_select_none")
     a.raw("B8 02 00 00 00", "mov         eax,2")      # item 2 is a heading: the stock table does nothing
     a.raw("C3", "ret")
     a.label("options_select_back")
-    a.raw("B8 07 00 00 00", "mov         eax,7")      # "Zurück" moved from item 7 to 9
+    a.raw("B8 07 00 00 00", "mov         eax,7")      # "Zurück" moved from item 7 to OPTIONS_ITEM_BACK
     a.label("options_select_done")
     a.raw("C3", "ret")
 
-    # "menu left" / "menu right" on the switch
+    # eax = item: flips the switch of that item, if it is one. Keeps ebx, esi, edi, ebp.
+    a.label("options_toggle")
+    a.raw("83 F8 %02X" % OPTIONS_ITEM_UNLOCK, "cmp         eax,%s" % _imm(OPTIONS_ITEM_UNLOCK))
+    a.jcc_near("je", "unlock_toggle")
+    a.raw("83 F8 %02X" % OPTIONS_ITEM_PHYS, "cmp         eax,%s" % _imm(OPTIONS_ITEM_PHYS))
+    a.jcc_near("je", "phys_toggle")
+    a.raw("C3", "ret")
+
+    # "menu left" / "menu right" on a switch
     a.label("options_left")
-    a.raw("83 BE 48 01 00 00 08", "cmp         dword ptr [esi+00000148h],8")
-    a.jcc_short("jne", "options_left_plain")
-    a.call("phys_toggle")
-    a.label("options_left_plain")
+    a.raw("8B 86 48 01 00 00", "mov         eax,dword ptr [esi+00000148h]")
+    a.call("options_toggle")
     a.raw("8B 86 48 01 00 00", "mov         eax,dword ptr [esi+00000148h]")   # displaced
     a.raw("C3", "ret")
 
     a.label("options_right")
-    a.raw("83 BE 48 01 00 00 08", "cmp         dword ptr [esi+00000148h],8")
-    a.jcc_short("jne", "options_right_plain")
-    a.call("phys_toggle")
-    a.label("options_right_plain")
+    a.raw("8B 86 48 01 00 00", "mov         eax,dword ptr [esi+00000148h]")
+    a.call("options_toggle")
     a.raw("8B B6 48 01 00 00", "mov         esi,dword ptr [esi+00000148h]")   # displaced
     a.raw("C3", "ret")
 
@@ -3609,8 +5003,9 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<5f", 1.0, 1.0, 1.0, *pulls), "float 1, 1, 1, %g, %g" % tuple(pulls))
     a.label("ai_item_rate")
     a.data(struct.pack("<f", AI_ITEM_UPDATES / 60.0), "float %g: the game's 800 updates, in seconds at 60 FPS" % (AI_ITEM_UPDATES / 60.0))
-    a.label("ai_catchup")
-    a.data(struct.pack("<2f", *AI_CATCHUP), "float %g, %g: how much of their handicap the computer karts lose in 200 / 250 cc" % AI_CATCHUP)
+    a.label("opp_class_tempo")
+    a.data(struct.pack("<6b", *OPP_CLASS_TEMPO) + b"\0\0",
+           "\"Tempo\" of the computer karts at \"Standard\", per class in percent: %d, %d, %d, %d, %d, %d" % OPP_CLASS_TEMPO)
     a.label("hundredth")
     a.data(struct.pack("<f", 0.01), "float 0.01")
     a.label("stock_gravity")
@@ -3627,10 +5022,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(b"".join(struct.pack("<2f", m, TOP_K * gd) for m, gd in TOP_CHARS),
            "top speed: mass and rpm per unit/s in top gear of the seven characters")
     a.label("tune_rows")
-    a.data(b"".join(struct.pack("<4h", *row) for row in TUNE_ROWS), "tuning rows: minimum, maximum, step, default")
+    a.data(b"".join(struct.pack("<4h", *row) for row in TUNE_ROWS + (NEW_ROW,)),
+           "tuning rows: minimum, maximum, step, default (the last: the second row of Gegner)")
     a.label("tune_presets")
-    a.data(b"".join(struct.pack("<%dh" % len(TUNE_ROWS), *vals) for _, vals in TUNE_PRESETS),
-           "tuning presets: the nine values of " + ", ".join(name for name, _ in TUNE_PRESETS))
+    a.data(b"".join(struct.pack("<%dh" % PRESET_VALUES, *vals) for _, vals in TUNE_PRESETS),
+           "tuning presets: the eight values of " + ", ".join(name for name, _ in TUNE_PRESETS))
     tab = limit_table()
     a.label("tune_limit_rows")
     rows, off = b"", 0
@@ -3642,7 +5038,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(b"".join(struct.pack("<%db" % len(LIMIT_CHANNELS), *pts) for steps in tab for pts in steps),
            "Am Limit: points of %s per grid step of every row" % ", ".join(LIMIT_CHANNELS))
     a.label("tune_info_texts")
-    a.data(struct.pack("<%dH" % len(TXT_INFO), *TXT_INFO), "text ids of the explanations of rows 1..9")
+    a.data(struct.pack("<%dH" % len(TXT_INFO), *TXT_INFO), "text ids of the explanations of rows 1..10")
     a.label("tune_apply_table")
     a.data(b"".join(struct.pack("<BH", n, off) for n, off in TUNE_APPLY) + b"\0",
            "tuning: value number and the car field it scales")
@@ -3703,6 +5099,14 @@ def site_patches(labels):
     call(0x0043A5CA, "D8 4C 90 54 8B 46 10", "ai_throttle", "AI throttle: 200 cc, 250 cc and 'Gegner' catch up")
     call(0x0043A5E5, "68 20 03 00 00 E8 E1 7C 05 00 83 C4 04", "ai_item_chance",
          "AI fires its power-up with the same chance per second at any frame rate")
+    jump(GEO_HOOK, GEO_HOOK_ORIG, "geo_ai", "AI: corner speed from the track's centre line (geometric driver)")
+    jump(GEO_LINE_HOOK, GEO_LINE_ORIG, "geo_line", "AI path planner: a line to the inside of the bends")
+    jump(CHAMP_RECT_HOOK, CHAMP_RECT_ORIG, "champ_rect", "championship page: the picture on the left while the page has 'Gegner'")
+    jump(0x0043996A, "D9 5C 24 54 D9 44 24 50", "geo_obst",
+         "AI path planner: a larger obstacle box for a slow kart ahead (learned driver; off by default)")
+    jump(0x0043A708, "8B 4E 10 8B 81 D0 02 00 00", "geo_watch",
+         "AI: a kart without progress for 5 s goes back to the road (200 cc, 250 cc, tuning class)")
+    data(0x0040976D, "68 C0 00 00 00", "68 C8 00 00 00", "AI controller: 8 bytes more (the watch's place and time)")
     jump(0x0042FC14, "8B 44 BC 18 53", "engine_sound", "engine sample selection")
     jump(0x00437724, "8B 40 10 3B C3", "class_factor", "class factor table")
     call(0x0043F7F4, "D8 8F 68 02 00 00", "pull_mul", "drive torque: pull of the class")
@@ -3745,6 +5149,11 @@ def site_patches(labels):
     data(0x00414571, "83 FF 02", "83 FF 05", "unlock chain: 200 cc, 250 cc and the tuning class")
     call(0x0041457A, "81 C7 48 02 00 00", "unlock_class_text", "unlock message for the tuning class")
     call(0x00414540, "81 C7 44 02 00 00", "unlock_text", "unlock message for championship 2 in 250 cc")
+    # "Alles freigeschaltet": the class menu and the track lock (Meisterschaft 2, tracks 5-8) read
+    # the progress through the switch; the unlock chain above keeps the real one
+    call(0x0041B173, "8B 88 08 FD 00 00", "unlock_level", "class menu: 100 cc row reads the switch")
+    call(0x0041B2B9, "83 B8 08 FD 00 00 02", "unlock_cmp2", "class menu: 150 cc row reads the switch")
+    call(0x00413110, "85 90 0C FD 00 00", "unlock_test", "track lock: open while the switch is on")
 
     # highscore browser cycles through six classes
     for va in (0x0041ED48, 0x0041EEB9, 0x0041EF70, 0x0041F0A4, 0x0041F0DE, 0x0041F1DC, 0x0041F293):
@@ -3895,6 +5304,25 @@ def unlock(settings_path, tuning=False):
           % (settings_path, old, new, bits, new_bits))
 
 
+def lock(settings_path):
+    """Lock 200 cc and up again, as before they were won: the 'highest unlocked class' counter
+    goes down to 150 cc, championship 2 of 200 cc and 250 cc closes, and the switch
+    'Alles freigeschaltet' goes off. The tuning class's bit stays: its values set it once, and
+    the class stays hidden until the counter reaches it again. Records and phantoms stay."""
+    data = read_settings(settings_path)
+    off = 0xFD08 - 4   # file = GameParameters object without its vtable pointer
+    old, bits = struct.unpack_from("<iI", data, off)
+    new = min(old, 2)
+    new_bits = bits & ~0x18
+    struct.pack_into("<iI", data, off, new, new_bits)
+    mark = UNLOCK_MARK - 4
+    was_on = struct.unpack_from("<I", data, mark)[0] == UNLOCK_MAGIC
+    struct.pack_into("<I", data, mark, 0)
+    open(settings_path, "wb").write(data)
+    print("%s: highest unlocked class %d -> %d, championship 2 open in classes %02Xh -> %02Xh, "
+          "Alles freigeschaltet %s -> off" % (settings_path, old, new, bits, new_bits, "on" if was_on else "off"))
+
+
 def physics60(settings_path, state):
     """Set the "60-FPS-Fahrphysik" switch the way the options menu does."""
     data = read_settings(settings_path)
@@ -3941,6 +5369,8 @@ def main():
                     help="open 50 cc to 250 cc with both championships in a settings.dat and exit")
     ap.add_argument("--unlock-tuning", metavar="SETTINGS.DAT",
                     help="the same, and the tuning class too")
+    ap.add_argument("--lock", metavar="SETTINGS.DAT",
+                    help="lock 200 cc, 250 cc and the tuning class again in a settings.dat and exit")
     ap.add_argument("--physics60", nargs=2, metavar=("on|off", "SETTINGS.DAT"),
                     help="set the 60 FPS physics switch in a settings.dat and exit")
     ap.add_argument("--player-name", nargs=2, metavar=("NAME", "SETTINGS.DAT"),
@@ -3948,6 +5378,9 @@ def main():
     args = ap.parse_args()
     if args.unlock or args.unlock_tuning:
         unlock(args.unlock or args.unlock_tuning, tuning=bool(args.unlock_tuning))
+        return
+    if args.lock:
+        lock(args.lock)
         return
     if args.physics60:
         if args.physics60[0] not in ("on", "off"):

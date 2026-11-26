@@ -1,0 +1,2 @@
+# Shell scripts must keep LF: Git Bash does not run them with CRLF (core.autocrlf would add it on checkout)
+*.sh text eol=lf

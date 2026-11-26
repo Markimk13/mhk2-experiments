@@ -1,0 +1,22 @@
+﻿# Scene list for cut_video.py: the 58 s showcase clip of 2026-11-26. A new recording needs new times:
+# video_scenes.py races / sheet. Command: py .claude\sandbox\tools\cut_video.py RECORDING THIS_FILE --fps 30
+# "2026-11-26 21-10-27.mkv" (race_recorder.py --video --audio --quality small, 28:15).
+# Races (video_scenes.py races): 0:42 250 cc Sumpf, 3:31 Fabrik, 5:37 Moorhuhn X, 8:06 Bergwerk,
+# 11:38 Tuning Burg, 14:31 Ägypten, 18:01 Winter, 20:01 Insel (lap bug), 23:54 Insel again;
+# 26:22 finish, 26:36-28:15 menus.
+# User's wishes (2026-11-26): no Sumpf scene at 0:58 (Lesshuhn had a bug there), settings at most
+# 20 s with the most important ones, no track names in the labels; 5 race clips, each a bit longer;
+# "Verbesserte Gegner" shows an opponent crossing a difficult part (the narrow bridge on Insel; the
+# player tumbles off it at 22:37.5, so the scene ends before). Opponents ahead of the player in curves
+# or jumps were found with tools/opp_ahead.py. The settings scenes after the first carry "+": one
+# continuous menu soundtrack (user, 2026-11-26).
+0:38.5-0:47       250 cc: neue Leistungsklasse
+22:30.5-22:37.4   6 verbesserte Gegner
+6:33-6:41         250 cc
+12:17.5-12:25.5   Tuning-Klasse
+26:19.5-26:27     Platz 1
+26:41-26:45       Alles freigeschaltet, 60-FPS-Fahrphysik
++ 26:50.5-26:53     Sechs Leistungsklassen
++ 26:54.5-26:57     Vorlagen für die Tuning-Klasse
++ 27:06-27:11       Kartwerte mit Am-Limit-Anzeige und Top speed
++ 27:53-27:58.5     Gegner: Tempo und Verbesserte Gegner

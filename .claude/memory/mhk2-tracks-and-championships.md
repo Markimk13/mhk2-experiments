@@ -1,0 +1,65 @@
+---
+name: mhk2-tracks-and-championships
+description: "How MHK2 finds its tracks and championships (both come from text ids, not fixed counts), what limits a 9th track, how the track files fit together, and why a reversed track needs no 3D work; how the game counts laps (start box plus path progress wrap; a missed start box stops the lap count for the rest of the race); plan for a first own track (still a TODO)"
+metadata:
+  type: project
+---
+
+Traced from the disassembly on 2026-11-19 (user asked whether new tracks and championships are possible). Nothing built or tested in the game yet; the user wants it kept as a TODO. First step the user wants: a new track, from scratch or as a changed copy of an existing one (e.g. reversed). The user could not get a RenderWare SDK running in a VM and does no graphics design, so the first track should need neither.
+
+## Tracks come from the text file
+
+- Menu init fn 0x415E70 (0x4162A3..0x4163C6): for n = 0..79 it asks for text 400 + n; every n that has a text goes into the track list at gp+0xFB78 (80 ints, ends exactly at gp+0xFCB8), count at gp+0xFB70. log.txt prints "Available tracks" / "Num available tracks".
+- List entry n means folder `level%02d` with n + 1 and menu pictures `Menu\textures8bit\track_%02d.png` / `track_%02d_lock.png` with n + 1 (0x416FA0..0x4170B1, one pair loaded per listed track).
+- So a 9th track = text 408 + `data\mk2\level09\...` + `track_09.png` + `track_09_lock.png`. The trap in [[mhk2-tuning-class]] (texts 410/411 made two tracks and the game never reached the menu) fits this: level11/12 and their pictures did not exist. Which missing file stops it was not checked.
+- Track lock fn 0x4130B0(n, class): full edition ([0x5C38D8] == 2) locks only n = 4..7 without the class's bit in gp+0xFD0C. n >= 8 is always open.
+- Race start fn 0x408540 (0x4087C6..0x40881B): time trial / single race take gp+0x20 (menu position), championship (gp+0x1C == 1 or 3) takes gp+0x28[gp+0x48]; both are positions in the list, mapped through gp+0xFB78.
+- Records: [class][64 tracks] tables (see [[mhk2-engine-classes]]), phantom scan `phantom-%d-%02d.mhk2` loops 64 tracks. **But the patch folds classes 3/4/5 into slots 32..63 of the stock rows**, so with the patch only list positions 0..31 are safe for new tracks. Plenty.
+- Many `cmp reg,7` in the menu code are the seven karts, not tracks; not every site was checked. Expect surprises in the HUD (track icons) and the highscore browser; test before trusting.
+
+## Championships come from the text file too
+
+- Same init: for n = 0..19 text 480 + n; list at gp+0xFCB8, count gp+0xFB74, then minus 2. Stock texts: 480 *Benutzerdefiniert*, 481 *Zufall*, 482 *Meisterschaft 1*, 483 *Meisterschaft 2*.
+- Championship page (handler in fn 0x41D400 from 0x41E3E0, built in fn 0x41A5A0): row 0 = championship id gp+0x24 (cycles 0 .. count + 1), rows 1..4 = the four tracks gp+0x28..0x34 (cycle over the track list; only changeable for *Benutzerdefiniert*).
+- id 0 *Benutzerdefiniert*: copies the last own choice from gp+0x38..0x44. id 1 *Zufall*: four different unlocked tracks at random (0x41E8E7..0x41EADA). id k >= 2: tracks at list positions 4·(FCB8[k] − 2) .. +3 (0x41B650..0x41B6AB). **So text 484 "Meisterschaft 3" plus four more tracks (list 8..11) would give a third championship without code.**
+- Four races per championship are fixed (gp+0x48 < 3 at 0x403CD7).
+- Championship highscores [3][20] by id (see [[mhk2-engine-classes]]): ids up to 19 fit, but the patch folds classes 3..5 into 10.., 30.., 50.., so ids >= 10 would collide with the folded rows. id 4 is fine.
+- Unlock chain on the trophy page: id 2 opens Meisterschaft 2 / tracks 5..8, id 3 opens the next class. A third championship would unlock nothing (not checked).
+
+## What a track folder holds (`data\mk2\levelNN\`)
+
+- `settings\objects\objects.txt` (encrypted, `mhk2crypt.py`): `LevelSettings` (the per-track computer-kart values, see [[mhk2-computer-kart-ai]], and `start spline offset`), `Track` (texture → material, and per material `lat dir friction`, `roll dir friction`, `material resistance`, skid and particle values: ice or mud tracks are a text edit), `TrackPath` (invalid respawn areas), `RotatedBoxArea` triggers (`message "start"` = the line, `"respawn"`), `PowerUpElement` (26..44 item boxes per track, position + rotation), `RigidBodyElement`, `AnimatedClumpElement`, `SfxElement`, particles, `BillboardForest`.
+- `settings\misc\misc.txt`: 20 replay cameras (`CarTargetCameraControl`), sound, free camera. `settings\display\display.txt`: clip distances, ambient and directional light, fog.
+- `objects\level.bsp` (RenderWare world, ground and visuals), `collision_border.dff`, `collision_objects.dff`, other `.dff` / `.anm` models, `textures8bit\*.bmp`, `music\music.ogg`.
+- `objects\street_left*.spl`, `street_right*.spl`: the road edges, RenderWare spline chunks (type 0x0C, version 0x1803FFFF, point count at +44, then x y z floats). TrackPath::Load fn 0x445290 tries `street_*_optimized.spl`, then `street_*.spl`, then `street_*_rev.spl`. For `_rev` files it reverses the point order of each (fn 0x444FD0) and **swaps left and right** (0x445A1E). Tracks 1, 2, 3, 5, 7 ship only `_rev` files; 4, 6, 8 ship plain ones (6 has extra `_1`, `_2`, `_short` splines). The computer karts, positions and the HUD track line follow these.
+- `start spline offset` per track: 0.982, 0.9999, 0.905, 0.0151, 0.985, 0.063, 0.953, 0.9935 (tracks 1..8).
+
+## A reversed track without 3D work
+
+- The road, walls and scenery stay; only the direction changes. For a `_rev` track: put the **unchanged** `street_left_rev.spl` in as `street_left.spl` and `street_right_rev.spl` as `street_right.spl` (plain names win, and without the reversal and swap the path runs the other way). For a plain track: write reversed point order, left and right swapped (a few lines of Python).
+- Also needed, in objects.txt: the start (`start spline offset`, probably the grid position along the path; the right value for the other direction must be found by trying), the `start` box (the line, maybe its rotation), respawn boxes, possibly one-way things (jumps, ramps). Replay cameras in misc.txt are cosmetic.
+- Laps need both the path progress and the `start` box (see "Lap counting" below). So a reversed track needs its `start` box on the line and a path whose wrap point (path progress 0) the kart passes once per lap. Wrong-way was not traced.
+- As a **replacement** of track 1 it needs only an archive; as **track 9** it needs a copy of the whole level folder (~10 MB for level01), text 408 and two menu pictures (a copy of track_01.png will do at first). Track 9 keeps its records and phantoms apart from track 1; a replacement would mix them, so a replacement only for testing in the sandbox.
+
+## Lap counting (traced 2026-11-26, original game code, untouched by the patch)
+
+Why it was traced: in the user's tuning-class championship of 2026-11-26 (Insel, race 4 of Meisterschaft 2, `runs\user\20261126_213029_c5_t2`) lap 2 was never counted, and no later lap either, so the race could not end; the user quit at 226 s.
+
+- Two counters in the car. **car+230h** counts how often the path progress car+224h wrapped forward through 0, minus backward: per frame while car state [car+2D0h] == 2 (fn around 0x432F44), cur = frac(car+224h + s) and prev = frac(car+228h + s), s = 0.5 when [0x5E84A4] == 8 (Sumpf, its path starts half a lap off), else 0. cur < 0.2 and prev >= 0.8 → +1; cur > 0.8 and prev <= 0.2 → −1. car+228h = last frame's value, −1.0 outside state 2. The messages "reset car" / "respawn car" (0x430B1D..0x430C44) move car+224h and apply the same 0.2 / 0.8 test, so set-backs keep the counter right.
+- **The lap** is counted in the car's message fn 0x4305F0 (ecx = car+2Ch, so its offsets are 2Ch lower) on the message `"start"`, which the `RotatedBoxArea` with `"message" "start"` of objects.txt sends when the kart enters it. car+234h holds the expected value of car+230h (−1 before the first `start`): −1 → set it to car+230h + 1 (the grid lies inside the box, so this happens at the start); car+230h == car+234h → count: best lap car+254h (time rounded to 1/100), lap time car+258h + 4·laps if laps < 3, **laps car+264h + 1**, lap timer car+250h = 0, message `RACE_newlap` for a human kart, then car+234h = car+230h + 1; any other value → nothing. The race ends at laps >= 3 (fn 0x4067B0, see [[mhk2-phantom-and-manager-internals]]).
+- So **a lap counts only if the kart enters the start box AND passed path progress 0 exactly once since the last counted lap.** On Insel the box is at path progress 0.905 (the grid), the wrap point far from it (x ≈ 197). A kart that misses the box once (beside or over it) passes 0 again before the next box entry: car+230h is then one ahead of car+234h for good, and **no lap counts again for the rest of the race** (the original game has no recovery; the race can only be quit). Driving backwards through the box changes nothing (no wrap there).
+- Insel's start box (level03 objects.txt, RotatedBoxArea_7): centre (77.83, 4.55, −27.44), rotation w x y z = (0.577, 0.029, 0.814, −0.064), size 30 × 10 × 4 (across, height, along). The kart's recorded position passes it at height −4.4 below the centre. `.claude\sandbox\tools\start_box.py <recording.csv>` prints every pass of the box plane (any track, box read from the archive).
+- What happened in the user's race: the user fired a *Powerdose* (item 7) at 108.78 s with the tuning values 3.60 / 300 / 200 / 100 / 400 / 200 / 350 / gravity 100 % (normal race speed already 70..79 units/s). The kart reached 126.5 units/s (455 km/h) on the straight before the last bend, hit the outside of the bend at (180, −62) at 109.4 s, was thrown up and flew over the line at **height 33 above the box centre** (y = 37, 100 units/s) at 110.44 s; at 110.85 s the game set it back onto the road at (65.0, −22.7), already past the box (path progress 0.911). The passes at 53.37 s (lap 1), 176.0 s and 223.6 s were inside the box; the last two no longer counted because car+230h was one ahead. The `prog` value (car+220h) moved on normally the whole time, it is not the lap counter.
+- Patch involvement: the rule and the missing recovery are the original game's (no patch site in 0x4305F0..0x430770 or 0x432F44..0x433004). The original classes cannot do this jump (150 cc with the power can tops out at 61 units/s, [[mhk2-powerups-and-class-factors]]); the tuning class with a high *Übersetzung* plus a power-up can. A fix in the patch is one byte: `jne` at 0x43068E (`cmp car+230h, car+234h`) → `jl` (0F 85 → 0F 8C), so a box entry with car+230h ahead counts one lap (holding two laps' time) and re-syncs; a missed box then costs one lap instead of the race. Queued as an issue (2026-11-26). Not tested in the game: the analysis is from the disassembly of the original exe and the recording.
+
+## Archives
+
+- `data\mhk2-NN.dat`, mounted newest first, later files replace earlier ones (V1.1 = `mhk2-01.dat`). Format (`datlist.py`): 0x40 header (magic "Moorhuhn Kart 2" padded to 0x20, count, alignment 0x100), then per entry 0x80 bytes (name to 0x68, offset, size, rest zero), data aligned to 0x100. A writer (`datpack.py`) does not exist yet; it is small.
+- Texts: the patch already ships `text-20.csv`; a track or championship name goes there (ids 408.., 484..).
+
+## Plan when it is picked up
+
+1. `datpack.py` and a check that the game loads an archive that changes one text value.
+2. Reversed track 1 as a replacement in the sandbox: does it load, where is the grid, do laps count, do computer karts drive.
+3. The same as track 9 (folder copy, text 408, pictures). Then records, phantoms, browser, HUD.
+4. Later: Meisterschaft 3 needs four new tracks (reversed 1..4?).
