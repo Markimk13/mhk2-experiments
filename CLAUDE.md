@@ -35,13 +35,21 @@ The manager program (`mhk2_manager`, github.com/Markimk13/mhk2_manager) is the u
 - Version (user, 2026-11-22, suffix 2026-11-23): a release has two digits and raises the second
   (1.9 -> 1.10); every commit in between carries the next release with a `-preN` suffix
   (1.10-pre2), counted by the patcher itself (`patch_version()`: commits since tag
-  `v<PATCH_RELEASE>` + 1). At a release: bring `README.md`, `docs/*.md` and `CHANGELOG.md` up
-  to date with every change since the last release first (user, 2026-11-24; the 1.9 sync missed
-  parts), in the structure and style of the skill
-  [public-docs](.claude/skills/public-docs/SKILL.md) (user, 2026-11-26), through its checklist
-  (`make_release.py` refuses without a CHANGELOG section for the release); `make_release.py`
-  builds the two-digit number; then set `PATCH_RELEASE` to it and tag the release commit
-  `v<release>`.
+  `v<PATCH_RELEASE>` + 1).
+- Docs during the work (user, 2026-11-26), in the structure and style of the skill
+  [public-docs](.claude/skills/public-docs/SKILL.md):
+  - `CHANGELOG.md`: every commit with a player-visible change adds its bullet to the section of
+    the next release (`## 1.11`; create it with the first bullet), in the same commit.
+  - `README.md` and `docs/*.md`: update them in the commit that finishes a feature or an issue,
+    not in the steps before it, because names and settings still change during the work.
+- At a release: run the checklist of the skill [public-docs](.claude/skills/public-docs/SKILL.md)
+  over `README.md`, `docs/*.md` and `CHANGELOG.md` and fill every gap since the last release
+  (user, 2026-11-24; the 1.9 sync missed parts). `make_release.py` refuses without a CHANGELOG
+  section for the release, and it builds the two-digit number. Then set `PATCH_RELEASE` to it
+  and tag the release commit `v<release>`. The release notes for the GitHub release page
+  (`dist\release-<release>.md`, ignored by git) only link to the release's section in
+  `CHANGELOG.md` at the tag (user, 2026-11-26), for example
+  `https://github.com/Markimk13/mhk2-experiments/blob/v1.10/CHANGELOG.md#110`.
 - Public repository: never commit game files (exe, `.dat`, extracted texts, disassembly), the
   user's records or phantoms, absolute paths with the user's name, or other personal data. The
   only game-derived files in git are the test fixtures (the game's original phantoms and a

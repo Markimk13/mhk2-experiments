@@ -44,11 +44,13 @@ files moved into this one, without its history (first drafted on 2026-11-22, don
   the language; LIESMICH.txt / README.txt with the unlock and build commands;
   `tools/patch_200cc.py`, so `py tools\patch_200cc.py --unlock settings.dat` works in the game
   folder). The user copies the release page text from a draft, `dist\release-<version>.md`
-  (ignored by git); they want the unlock and build commands prominent there and in the README
-  (2026-11-22). The zips go to a GitHub Release, not into git. `release_check.py` (jobs group
+  (ignored by git). Since 1.10 (user, 2026-11-26) it only links to the release's section of
+  `CHANGELOG.md` at the tag; up to 1.9 it repeated the unlock and build commands, which the
+  README keeps prominent (2026-11-22). The zips go to a GitHub Release, not into git. `release_check.py` (jobs group
   `release`) builds both zips with `make_release.py` and checks them; `make_release.py` refuses
-  to build without a `## <release>` section in CHANGELOG.md, so between releases that check
-  fails on purpose.
+  to build without a `## <release>` section in CHANGELOG.md, so that check fails on purpose
+  until the first commit after a release adds the next section (the changelog grows with each
+  commit since 2026-11-26).
 - **Related projects** in the README (SKevo's idlemod with its Cheat Engine tables, mhk-os, the
   user's mhk2_manager): checked on 2026-11-22, the patch took no code or knowledge from them, so
   the section is a courtesy, not a credit.
