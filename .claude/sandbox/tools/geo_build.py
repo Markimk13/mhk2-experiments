@@ -7,7 +7,6 @@ dumpbin check (verify_listing.py, must be 0 mismatches), then geo60.exe (60 FPS 
 geo200.exe (the game's 200 FPS) in game, game2 and game3, with the build's text file (it carries
 the version shown in the menu). Refuses while a test game runs.
 """
-import glob
 import os
 import shutil
 import subprocess
@@ -17,7 +16,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SANDBOX = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(SANDBOX))
 OUT = os.path.join(SANDBOX, "builds", "geo")
-DUMPBIN = r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x86\dumpbin.exe"
 
 
 def run(*args, **kw):
@@ -33,6 +31,9 @@ def main():
     import paths
     if any(not g["real"] for g in gameslot.games()):
         raise SystemExit("a test game runs (its exe may be one of the builds)")
+    dumpbin = paths.msvc_tool("dumpbin.exe")
+    if not dumpbin:
+        raise SystemExit("needs dumpbin.exe: Visual Studio with the C++ tools (MSVC x86)")
     print(run(sys.executable, os.path.join(HERE, "asm2py.py"), os.path.join(HERE, "geo_driver.asm"), "GEO_DRIVER",
               os.path.join(REPO, "tools", "patch_200cc.py")).strip())
     os.makedirs(OUT, exist_ok=True)
@@ -41,7 +42,7 @@ def main():
               OUT, "--listing", listing).strip().splitlines()[0])
     dis = os.path.join(OUT, "mod200.dis.txt")
     with open(dis, "w") as f:
-        subprocess.run([sorted(glob.glob(DUMPBIN))[-1], "/disasm", "/section:.mod200", os.path.join(OUT, "MHK2-XXL.exe")], stdout=f, check=True)
+        subprocess.run([dumpbin, "/disasm", "/section:.mod200", os.path.join(OUT, "MHK2-XXL.exe")], stdout=f, check=True)
     check = run(sys.executable, os.path.join(HERE, "verify_listing.py"), listing, dis).strip().splitlines()
     print(check[-1].split(", data")[0])
     if " 0 mismatches" not in check[-1]:

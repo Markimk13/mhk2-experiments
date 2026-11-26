@@ -33,6 +33,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,7 +48,7 @@ LOCK_VA = 0x0046F3AC                        # call InstanceLock (file offset == 
 LOCK_ORIG = bytes.fromhex("E8 9F 55 03 00")
 LOCK_SKIP = bytes.fromhex("83 C4 04 90 90")
 TEST_MARKS = ("\\.claude\\sandbox\\", "\\.claude\\worktrees\\",
-              os.path.join(os.environ.get("LOCALAPPDATA", ""), "Temp", "claude").lower() + "\\")
+              os.path.join(tempfile.gettempdir(), "claude").lower() + "\\")    # Claude's scratchpad
 
 k32 = H.kernel32
 psapi = ctypes.WinDLL("psapi")
@@ -351,7 +352,8 @@ def spawn(exe, args=(), quiet_start=True, guard=True):
         H.set_pidfile(os.path.join(folder, "game.pid"))
         open(H.PIDFILE, "w").write(str(p.pid))
         if guard:
-            subprocess.Popen([sys.executable.replace("python.exe", "pythonw.exe"), os.path.join(HERE, "focusguard.py"),
+            pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+            subprocess.Popen([pyw if os.path.exists(pyw) else sys.executable, os.path.join(HERE, "focusguard.py"),
                               str(p.pid), str(before)], creationflags=0x08000008, close_fds=True)
         while not _menu_reached(log, t0) and p.poll() is None and time.time() - t0 < 60:
             time.sleep(0.5)

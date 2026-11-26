@@ -20,7 +20,9 @@ import struct
 import subprocess
 import sys
 
-VS = r"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x86"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import paths                                        # noqa: E402
+
 LINE = re.compile(r"^  ([0-9A-F]{8}): ((?:[0-9A-F]{2} )+)\s*(.*)$")
 BRANCH = re.compile(r"^(j\w+|call|loop\w*)\s+([0-9A-F]{8})$")
 
@@ -47,11 +49,14 @@ def main():
             magic = m.group(1).encode()
     work = os.path.splitext(src)[0]
     obj = work + ".obj"
-    r = subprocess.run([os.path.join(VS, "ml.exe"), "/nologo", "/c", "/Fo" + obj, src], capture_output=True, text=True,
+    ml, dumpbin = paths.msvc_tool("ml.exe"), paths.msvc_tool("dumpbin.exe")
+    if not ml or not dumpbin:
+        raise SystemExit("needs ml.exe and dumpbin.exe: Visual Studio with the C++ tools (MSVC x86)")
+    r = subprocess.run([ml, "/nologo", "/c", "/Fo" + obj, src], capture_output=True, text=True,
                        cwd=os.path.dirname(src))       # INCLUDE files sit next to the source
     if r.returncode:
         raise SystemExit(r.stdout + r.stderr)
-    dis = subprocess.run([os.path.join(VS, "dumpbin.exe"), "/nologo", "/disasm", "/relocations", obj],
+    dis = subprocess.run([dumpbin, "/nologo", "/disasm", "/relocations", obj],
                          capture_output=True, text=True).stdout
     raw = text_section(obj)
     os.remove(obj)                                  # a build product, not kept next to the source

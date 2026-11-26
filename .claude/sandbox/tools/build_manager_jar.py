@@ -17,7 +17,8 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.path.join(os.path.dirname(HERE), "manager")
-JAVAC = r"C:\Program Files\Java\jdk-17\bin\javac.exe"
+sys.path.insert(0, HERE)
+import paths                                        # noqa: E402
 
 
 def main():
@@ -38,7 +39,10 @@ def main():
     listing = os.path.join(WORK, "sources.txt")
     with open(listing, "w", encoding="utf-8") as f:
         f.write("\n".join('"%s"' % s.replace("\\", "/") for s in sources))
-    subprocess.run([JAVAC, "--release", "8", "-encoding", "Cp1252", "-nowarn",
+    javac = paths.javac()
+    if not javac:
+        raise SystemExit("needs javac of a JDK 9 or newer (JAVA_HOME, PATH or Program Files\\Java)")
+    subprocess.run([javac, "--release", "8", "-encoding", "Cp1252", "-nowarn",
                     "-cp", os.path.join(repo, "source", "lib", "utils.jar"),
                     "-d", classes, "@" + listing], check=True)
 

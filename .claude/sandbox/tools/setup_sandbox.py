@@ -23,7 +23,6 @@ It first claims game\ and the extra game folders (game2, game3, ... which gamesl
 when tests run side by side) and waits while a test uses one, because it replaces the test
 builds; at the end it copies the new builds and data into the extra folders too.
 """
-import glob
 import hashlib
 import os
 import shutil
@@ -40,7 +39,6 @@ ORIGINAL = paths.original_exe()
 DATA_SOURCE = paths.game_data()
 OUTPUT = paths.OUTPUT
 WORK, GAME, FIXTURES = (os.path.join(ROOT, n) for n in ("work", "game", "fixtures"))
-DUMPBIN = r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x86\dumpbin.exe"
 # test builds: (name, source, extra arguments of prep_class5.py)
 BUILDS = (("ghost_new.exe", "patched", []), ("ghost_mouse.exe", "patched", ["--mouse"]),
           ("c5_new60.exe", "patched", ["60"]), ("ghost_orig.exe", "original", []),
@@ -73,12 +71,12 @@ def work_folder(disasm):
         f.write(data)
     step("work\\MHK2-XXL.orig.exe")
     if disasm:
-        found = sorted(glob.glob(DUMPBIN))
-        if not found:
+        dumpbin = paths.msvc_tool("dumpbin.exe")
+        if not dumpbin:
             step("no dumpbin.exe found: work\\disasm.txt not built (dis.py will not work)")
         else:
             with open(os.path.join(WORK, "disasm.txt"), "wb") as f:
-                subprocess.run([found[-1], "/disasm", orig], stdout=f, check=True)
+                subprocess.run([dumpbin, "/disasm", orig], stdout=f, check=True)
             py(os.path.join(HERE, "dis.py"), "index")
             step("work\\disasm.txt and its index")
     # the plain-text files of the game data
