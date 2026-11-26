@@ -66,7 +66,7 @@ import sys
 # release 1.9); a release has two digits, raises the second one and drops the suffix
 # (make_release.py builds with release=True). After a release: set PATCH_RELEASE to it and tag
 # that commit v<release>.
-PATCH_RELEASE = "1.9"
+PATCH_RELEASE = "1.10"
 
 
 def patch_version(release=False):

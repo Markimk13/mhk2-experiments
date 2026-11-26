@@ -11,6 +11,10 @@ Short answers about the patch. The pages of the features have more.
   kart.
 
   ![speed in the race](../screenshots/16-race-speed.png)
+- **Laps after a jump over the start line.** The game counts a lap only when your kart drives
+  through the start line. If your kart flies over it, the game counts no more laps in this race.
+  Then the race cannot end. Only the tuning class with a high *Übersetzung* (gearing) and a
+  power-up is fast enough for this jump. Restart the race when it happens.
 - **Language.** The new menu texts are German. The English zip has them in English. The game's
   own texts (*Weiter*, *Zurück*, the menu titles) stay German in both zips.
 - **Menu layout.** The rows of the options menu are higher and closer together than in the
