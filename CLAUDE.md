@@ -28,6 +28,10 @@ The manager program (`mhk2_manager`, github.com/Markimk13/mhk2_manager) is the u
   with real records. Test in the sandbox, `.claude/sandbox/game` (a copy that git ignores;
   `py .claude\sandbox\tools\setup_sandbox.py` rebuilds it).
 - Commit and push only when the user says so.
+- A commit that worked on a GitHub issue names it in the message (user, 2026-11-26), on its
+  own line at the end of the body, before the `Co-Authored-By` line: `Refs #12`. Several
+  issues: `Refs #12, #15`. Use a closing keyword (`Fixes #12`) only when the user says the
+  commit finishes the issue, because GitHub closes it when the commit reaches `main`.
 - Version (user, 2026-11-22, suffix 2026-11-23): a release has two digits and raises the second
   (1.9 -> 1.10); every commit in between carries the next release with a `-preN` suffix
   (1.10-pre2), counted by the patcher itself (`patch_version()`: commits since tag
