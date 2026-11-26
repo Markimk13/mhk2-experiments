@@ -56,12 +56,22 @@ releases has the number of the next release and `-pre`, for example 1.10-pre8.
 file `settings.dat` keeps your records, phantoms, tuning values and own presets. More about
 old saves: [Changelog](CHANGELOG.md).
 
-## Commands: unlock the classes, build the exe
+## Commands: build the exe, unlock the classes
 
-You do not need these commands to play. The switch *Alles freigeschaltet* in the options menu
+Build the patched exe yourself from your original exe, for example from your copy:
+
+```powershell
+py tools\patch_200cc.py "<original MHK2-XXL.exe>" out
+```
+
+Requires [Python 3](https://www.python.org/downloads/).
+This writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`. Copy both into the game folder.
+More: [Building it yourself](docs/building.md#building-it-yourself).
+
+You do not need any commands to play. The switch *Alles freigeschaltet* in the options menu
 opens everything without a command (see [Unlocking](docs/engine-classes.md#unlocking-every-class)).
 
-The commands need [Python 3](https://www.python.org/downloads/). Run them in the game folder.
+If still wanted, run them in the game folder.
 Close the game first, because the game writes `settings.dat` while it runs.
 
 Open 50 cc to 250 cc, each with Meisterschaft 2 and tracks 5 to 8:
@@ -93,15 +103,6 @@ Set the name for new phantom files (12 characters at most):
 ```powershell
 py tools\patch_200cc.py --player-name "Name" settings.dat
 ```
-
-Build the patched exe yourself from your original exe, for example from your copy:
-
-```powershell
-py tools\patch_200cc.py "<original MHK2-XXL.exe>" out
-```
-
-This writes `out\MHK2-XXL.exe` and `out\data\MK2\text-20.csv`. Copy both into the game folder.
-More: [Building it yourself](docs/building.md#building-it-yourself).
 
 ## What the patch does
 
