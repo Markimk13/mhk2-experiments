@@ -70,9 +70,9 @@ the pause page show them. The result page shows the medal that your time won:
 | Bronze time or faster | *Bronzemedaille!* (bronze medal) |
 | Slower than bronze | *Keine Medaille* (no medal) and the bronze time |
 
-The times come from races of computer karts with the same track, tuning values and driver. The
-silver time is about as fast as the faster computer karts. Gold is 3 % faster, bronze is 10 %
-slower.
+The times come from races of computer karts with the same track, tuning values and driver. A
+good player is about 30 % faster than these computer karts. For gold, you need a good run and the
+power can at the right place. For silver, a good run without the power can is enough.
 
 ## Records and phantoms
 
@@ -86,8 +86,8 @@ slower.
 ## Good to know
 
 - The phantom files of earlier days stay in `data\Phantom`. You can delete them.
-- **Medal times.** The times come from computer karts, not from players. On some stretches, a
-  medal is easier to win than on others. Please report a time that looks wrong in the issues.
+- **Medal times.** The times come from computer karts and from the runs of one player. On some
+  stretches, a medal is easier to win than on others. Please report a time that looks wrong in the issues.
 - A challenge is not part of the highscore lists of the game. Rankings with other players and
   challenges between friends are planned in the issues.
 
@@ -105,8 +105,11 @@ track, about 160 races in all. From these races, it knows:
 - the time that the standing start costs with each set (0 to 3 seconds),
 - a factor for each driver (within 2 %).
 
-The silver time is the sum of these for the drawn stretch. A test left out one race at a time
-and computed it from the others. For a full lap, the model was off by 3.5 % in the middle. For a
+The computer karts' time is the sum of these for the drawn stretch. Gold is 0.66 of it, silver
+0.74 and bronze 0.85. These factors come from the first daily challenge: a good run took 0.71 of
+the computer karts' time without the power can, and 0.62 with it.
+
+A test left out one race at a time and computed it from the others. For a full lap, the model was off by 3.5 % in the middle. For a
 stretch, it was off by 4.5 % in the middle, and one stretch in ten was off by 16 % or more.
 
 How the patch does it: [How it works](how-it-works.md#challenges).

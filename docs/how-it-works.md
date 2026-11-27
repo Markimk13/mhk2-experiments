@@ -126,8 +126,8 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Medals.** The draw also computes the three medal times and keeps them at 0x885180. The
   reference time is ((C_t(start + share) − C_t(start)) × LAP[t] × SET[s] + LOSS[s]) × CHAR[c].
   C_t is the cumulative share of the lap time at 65 points of the path (`CH_PACE_SHAPE`), linear
-  between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.97, 1.0 and
-  1.1, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
+  between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.66, 0.74 and
+  0.85, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
   cuts the hundredths: a float a hair below n would show n − 1. A run wins a medal exactly when
   its own time shows n or less. `challenge_medals()` in the patcher does the same in Python. The
   result compares the run's time with each medal (time ≤ medal wins) and shows text 173 to 175,

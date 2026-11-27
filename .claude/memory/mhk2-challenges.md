@@ -291,10 +291,12 @@ stretch from them at the draw.
   `ch_draw`): ref = ((C_t(start+share) - C_t(start)) x CH_PACE_LAP[t] x CH_PACE_SET[s] +
   CH_PACE_LOSS[s]) x CH_PACE_CHAR[c]; C_t = cumulative share of CH_PACE_SHAPE[t] at 65 points
   (`ch_cum` builds float32 tables at build time), linear between, C(e-1)+1 behind the wrap. Medals
-  = round(ref x (0.97, 1.0, 1.1) x 100) / 100 into CH_MEDALS = CH_DATA+80h (3 floats). CH_SET =
+  = round(ref x (0.66, 0.74, 0.85) x 100) / 100 into CH_MEDALS = CH_DATA+80h (3 floats). CH_SET =
   CH_DATA+3Ch holds the drawn set (`_draw_set()` = the fifth xorshift number % 64).
-  `CH_MEDAL_FACTORS` are provisional: not calibrated against players yet (the user's two Insel
-  recordings gave user / computer ratios 0.70 and 0.94, crashes and power-ups in both).
+  `CH_MEDAL_FACTORS` (first 0.97 / 1.0 / 1.1, "far too easy") are set from the user's first
+  daily challenge (2026-11-27, Insel 1185 m, reference 29.0 s): 20.60 s without the can (0.71),
+  18.12 s with it (0.62); the user chose gold 0.66 (needs the can), silver 0.74, bronze 0.85.
+  One player, one draw: check again with more runs. The earlier Insel recordings gave 0.70.
 - **Display**: page 22h, a line at CH_Y_LINES[2] (text 171, the best line moved to [3]); the
   pause page, a fourth line (text 172) behind track and driver; the result (texts 173..175 for
   gold..bronze, 176 "Keine Medaille (Bronze: %s)"), compared with fcom: time <= medal wins.

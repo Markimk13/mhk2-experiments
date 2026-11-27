@@ -561,8 +561,11 @@ CH_GRAVITY = (50, 200)          # the gravity of a set stays in this range (perc
 # stretch_pace.py and pace_fit.py). CH_PACE_LAP: lap time per track (seconds) for set factor 1;
 # CH_PACE_SET: factor per set; CH_PACE_LOSS: the standing start per set (seconds); CH_PACE_CHAR:
 # factor per character; CH_PACE_SHAPE: per track the time of each 1/64 of the path (any unit).
-# The medals are factors on the reference.
-CH_MEDAL_FACTORS = (0.97, 1.0, 1.1)
+# The medals are factors on the reference. The computer karts are about 30 % slower than a good
+# player: the user drove the daily challenge of 2026-11-27 (Insel, 1185 m, reference 29.0 s) in
+# 20.60 s without the power can and 18.12 s with it (user, 2026-11-27: "far too easy" at 0.97 /
+# 1.0 / 1.1). Gold needs a good run with the can, silver a good run without it.
+CH_MEDAL_FACTORS = (0.66, 0.74, 0.85)
 # A medal of n hundredths is stored as (n + 0.99) / 100: the game's time text cuts the hundredths,
 # so the medal shows n (and not n - 1 for a float a hair below), and a run wins it exactly when its
 # own time shows n or less.
