@@ -173,3 +173,33 @@ and (only *Täglich*) the best time of the day; *Weiter* races against the best-
   On the stock grid car+234h becomes 1 at once and car+230h counts the wrap at progress 0.
 - Not yet checked: starts in a sharp bend, on a jump or a slope (only two places tried, one track);
   races with computer karts and the HUD (track line, lap display) from a moved start.
+
+## The user's first look (2026-11-27) and the fixes (fourth commit)
+
+- **Result overlay (page 0Eh)** listed laps 1..3 and *Gesamt* (texts 361..364, blocks from
+  0x422643; duel / 2P use a second set from 0x422C1F). In a challenge `ch_result` replaces them
+  (see "Result lines" below).
+- **Total 4:32 for a 2.6 s run:** at the race end fn 0x437920 gives every kart with car+264h < 3
+  estimated lap times (average of its laps, else 90 s, times a random factor) and sets car state
+  4. `ch_finish` now also sets car+264h = 3. The phantom header (written at the finish) had been
+  right all along.
+- **Phantom driver:** the race start creates the phantom car (Car ctor 0x42F430, byte +2ACh = 1,
+  in the car list) with the character [gp + slot * 6Ch + 0A9ECh] at 0x4099B1 = +54h of the
+  header table (gp+0AA04h) entry of the normal phantom of that class and track, not of the file
+  it loads. Character of a car: +330h (set by 0x4343E0). `ch_ghostchar`: player 1's character
+  (gp+58h) in a challenge.
+- **Minimap:** the stretch is magenta 0xFFE040FF now (yellow looked too much like the green dot).
+- **Pause page:** `pause_ch` (from `pause_info`, frame grown to 380h): *Tägliche
+  Herausforderung: dd.mm.yyyy, Bestzeit: …* or *Zufällige Herausforderung: Seed n* (CH_SEED0,
+  the former CH_UNUSED, keeps the seed), then values, top speed and ", Strecke: …, n m ab p %,
+  Fahrer: …" in one label. Date: `ch_date` (Hinnant's civil_from_days; mirror
+  `challenge_date`, checked against datetime). Texts 157..159, 167. The 4 lines fit above the
+  stock items (picture `runs\challenge\flow2\7_pause.png`).
+- `challenge_flow.py` checks all of it (daily 33, random 26, tuned 33 checks).
+- Not changed: the HUD's *Bestzeit* (top right) stays "--:--:--" in a daily race, and the result
+  list (0Fh) after *Weiter* shows the tuning class's normal highscore list of the track.
+- **Result lines (user, 2026-11-27):** "Deine Zeit: …" (header time gp+FB04h+58h), and in a daily
+  challenge "Bestzeit: …" or the green "Neue Bestzeit!" (texts 168..170, y 270 / 320; random: the
+  first line only). `ch_result` builds them and jumps to 0x4233B5, where all stock line blocks
+  end. `ch_promote` sets CH_NEWBEST (CH_DATA+34h) when it copied a faster daily run (0 else), so
+  a tie shows "Bestzeit".

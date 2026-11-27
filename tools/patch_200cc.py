@@ -380,6 +380,19 @@ def challenge_daily_seed(day):
     return ((day * CH_DAILY_MUL) & 0xFFFFFFFF) ^ CH_DAILY_XOR
 
 
+def challenge_date(day):
+    """(day, month, year) of a day number (days since 1601-01-01), as `ch_date` computes it
+    (H. Hinnant's civil_from_days, unsigned 32-bit divisions)."""
+    z = day + CH_DAYS_1601_TO_0
+    era, doe = divmod(z, 146097)
+    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    d = doy - (153 * mp + 2) // 5 + 1
+    m = mp + 3 if mp < 10 else mp - 9
+    return d, m, yoe + era * 400 + (m <= 2)
+
+
 def limit_line(values, lang="de", char=0):
     """The line the tuning pages show for the eight values (with its tags, and the top speed for the
     character), as the game prints it."""
@@ -435,12 +448,14 @@ TXT_SPEED = 209
 # 0x406481), the race ends when player 1 has covered "length" of progress (the lap test at
 # 0x406B5A), "Runde %d/3" becomes the metres left, and the minimap shows the stretch.
 CH_DATA = 0x00885100
-CH_ACTIVE, CH_START, CH_LEN, CH_DONE, CH_LAST, CH_LO, CH_HI, CH_DAY, CH_METRES, CH_SEED, CH_UNUSED, CH_TMP, CH_FROM = (
+CH_ACTIVE, CH_START, CH_LEN, CH_DONE, CH_LAST, CH_LO, CH_HI, CH_DAY, CH_METRES, CH_SEED, CH_SEED0, CH_TMP, CH_FROM = (
     CH_DATA + 4 * k for k in range(13))
 # CH_ACTIVE: a challenge is drawn; GameParameters then hold its settings (CH_SWAP) and CH_SAVE the
 # player's own. CH_DAY: the day of a daily challenge (days since 1601, UTC), 0 for a random one.
-# CH_METRES: the metres the HUD shows last (for the tests). CH_SEED: the generator's state.
+# CH_METRES: the metres the HUD shows last (for the tests). CH_SEED: the generator's state,
+# CH_SEED0: the seed it started from (the pause page shows it for a random challenge).
 # CH_FROM: the challenge page was left with "Zurück" (the race mode page then selects its button).
+CH_NEWBEST = CH_DATA + 0x34    # the last daily run became the best of the day (ch_promote)
 CH_SAVE = CH_DATA + 0x40
 CH_SWAP = (0x10, 0x1C, 0x20, 0x4C, 0x58) + tuple(0x2E4C + 4 * k for k in range(8))   # class, mode, track,
 # the 60 FPS switch, player 1's character, the eight tuning values (TUNE_VALUES)
@@ -457,6 +472,15 @@ CH_Y_LINES = (250, 310, 400)    # track and driver, the values, the best time of
 (TXT_CH_MODE, TXT_CH_TITLE, TXT_CH_RANDOM, TXT_CH_DAILY, TXT_CH_DRAW, TXT_CH_BEST,
  TXT_CH_BEST_NONE) = range(150, 157)
 TXT_CH_CHAR0 = 160              # 160..166: the names of the seven characters (karts.txt order)
+# The pause page in a challenge: the line with the challenge (daily with / without a best time,
+# random with the seed) in place of class and switch, and the track and driver behind the values.
+TXT_CH_P_DAILY, TXT_CH_P_DAILY_NONE, TXT_CH_P_RANDOM = 157, 158, 159
+TXT_CH_P_DRAW = 167
+# The result overlay in a challenge: "Deine Zeit: %s", then (daily) "Bestzeit: %s" or the green
+# "Neue Bestzeit!".
+TXT_CH_R_TIME, TXT_CH_R_BEST, TXT_CH_R_NEW = 168, 169, 170
+CH_R_Y = (270, 320)
+CH_R_NEW_COLOR = "<color 80 255 80 255>%s</color>"
 TXT_TRACK0 = 400                # the game's track names
 START_RACE = 0x004122E0         # Menu::StartRace (this = menu), what the game's track page calls
 TIME_TEXT = 0x00411FA0          # std::string* __stdcall (std::string* out, float seconds): "mm:ss:hh"
@@ -478,8 +502,9 @@ DAILY_ENTRY = 0x234 + 59 * 0xB4     # 2BB0h: marker, day, best time (float)
 DAILY_MAGIC = 0x43594144            # "DAYC"
 STR_DAILY_FMT = "data\\Phantom\\daily-%d.mhk2"
 CH_BAND = 0.008                 # progress around the finish drawn in its colour
-# ARGB. Not red or green: the kart dots on the minimap are red (player 1), blue and green.
-CH_COLORS = {"rest": 0x60C0C0C0, "stretch": 0xFFFFD040, "finish": 0xFFFFFFFF}
+# ARGB. Magenta, far from the kart dots on the minimap (red, blue, green); yellow was too close to
+# the player's green (user, 2026-11-27).
+CH_COLORS = {"rest": 0x60C0C0C0, "stretch": 0xFFE040FF, "finish": 0xFFFFFFFF}
 CH_GRID_HOOK, CH_GRID_BACK = 0x00406481, 0x00406488
 CH_FINISH_HOOK, CH_FINISH_GO, CH_FINISH_NOT = 0x00406B5A, 0x00406B67, 0x00406DD8
 CH_LAPID_HOOK, CH_LAPID_BACK = 0x00419078, 0x0041907E
@@ -501,6 +526,16 @@ CH_GHOST_HOOKS = ((0x00409B44, "83 C4 10 C7 84 24 EC 02 00 00 2A 00 00 00", 0x29
 CH_SAVE_HOOKS = (0x004122BB, 0x00403B72)
 CH_SAVE_ORIG = "8B CE FF 50 14"
 TXT_CH_LEFT = 105               # "Noch %d m" in place of "Runde %d/3" (text 100)
+# The result overlay (page 0Eh) lists laps 1..3 and the total (texts 361..364, from 0x422643 on, in
+# time trials and championships; all of them end at 0x4233B5). A challenge has no laps: its own
+# lines instead (TXT_CH_R_*).
+CH_RESULT_HOOK, CH_RESULT_BACK, CH_RESULT_END = 0x00422643, 0x0042264A, 0x004233B5
+CH_RESULT_ORIG = "53 53 E8 A6 F1 FD FF"
+# The phantom's driver at race start: [GameParameters + slot * 6Ch + 0A9ECh], the character in the
+# header of the class's and track's phantom file (0x4099B1). A challenge's phantom always has the
+# challenge's driver (the daily draw fixes it), so in a challenge it is player 1's character.
+CH_GHOSTCHAR_HOOK, CH_GHOSTCHAR_ORIG = 0x004099B1, "8B AC 07 EC A9 00 00"
+CH_DAYS_1601_TO_0 = 584694      # days from 1601-01-01 to the civil_from_days epoch (0000-03-01)
 TXT_TOP_PAUSE = (207, 208)      # on the pause page: behind the values (tuning class), below the class line (others)
 
 
@@ -778,6 +813,7 @@ TXT_OWN_BUTTON = 267       # the tuning page's button
 TXT_OWN_SLOT = 268         # "Platz %d: %s"
 TXT_OWN_VALUES = 269       # the values of an own slot, 10 numbers (OWN_VALUES_BUF)
 OWN_VALUES_BUF = 0x180     # buffer for that text
+PAUSE_FRAME = 0x380        # the pause page's stack frame; its values text at +180h (challenge: with track and driver)
 TXT_OWN_EMPTY = 271
 assert TXT_TUNE_PRESET0 + 16 == TXT_OWN_TITLE and TXT_LIMIT[-1] < TXT_TUNE_PRESET16
 assert TXT_TUNE_PRESET16 + len(TUNE_PRESETS) - 16 <= TXT_TUNE_ROW8 - 4    # 229 is still free
@@ -855,6 +891,10 @@ TEXTS = {
         "ch_mode": "Herausforderung", "ch_random": "Zufall", "ch_daily": "Täglich",
         "ch_draw": "Strecke: %s, %d m ab %d %%<br>Fahrer: %s",
         "ch_best": "Deine Bestzeit heute: %s", "ch_best_none": "Heute noch keine Zeit",
+        "ch_p_daily": "Tägliche Herausforderung:", "ch_p_random": "Zufällige Herausforderung:",
+        "ch_p_date": "%02d.%02d.%d", "ch_p_best": "Bestzeit:", "ch_p_best_none": "noch keine Zeit",
+        "ch_p_seed": "Seed %u", "ch_p_track": "Strecke:", "ch_p_from": "%d m ab %d %%", "ch_p_driver": "Fahrer:",
+        "ch_r_time": "Deine Zeit: %s", "ch_r_best": "Bestzeit: %s", "ch_r_new": "Neue Bestzeit!",
         "chars": ("Moorhuhn", "Lesshuhn", "Moorfrosch", "Kürbis", "Schneemann", "Schildkröte", "Hank"),
         "new_row": "Verbesserte Gegner", "new_short": "verbessert",
         "new_info": "Wie viele der sechs Computer-Karts fahren die<br>gelernte Linie? Sie bremsen vor Kurven und"
@@ -905,6 +945,10 @@ TEXTS = {
         "ch_mode": "Challenge", "ch_random": "Random", "ch_daily": "Daily",
         "ch_draw": "Track: %s, %d m from %d %%<br>Driver: %s",
         "ch_best": "Your best time today: %s", "ch_best_none": "No time yet today",
+        "ch_p_daily": "Daily challenge:", "ch_p_random": "Random challenge:",
+        "ch_p_date": "%02d/%02d/%d", "ch_p_best": "Best time:", "ch_p_best_none": "no time yet",
+        "ch_p_seed": "seed %u", "ch_p_track": "Track:", "ch_p_from": "%d m from %d %%", "ch_p_driver": "Driver:",
+        "ch_r_time": "Your time: %s", "ch_r_best": "Best time: %s", "ch_r_new": "New best time!",
         "chars": ("Moorhuhn", "Lesshuhn", "Moorfrosch", "Pumpkin", "Snowman", "Turtle", "Hank"),
         "new_row": "Improved opponents", "new_short": "improved",
         "new_info": "How many of the six computer karts drive the<br>learned line? They brake before corners and"
@@ -992,6 +1036,15 @@ def text_overrides(lang="de", version=None, lines_only=False):
         (TXT_CH_DRAW, "<scale 0.7>%s</scale>" % t["ch_draw"]),
         (TXT_CH_BEST, "<scale 0.7>%s</scale>" % t["ch_best"]),
         (TXT_CH_BEST_NONE, "<scale 0.7>%s</scale>" % t["ch_best_none"]),
+        (TXT_CH_P_DAILY, "<scale 0.6>%s %s, %s %%s</scale>" % (
+            TXT_GROUP % t["ch_p_daily"], t["ch_p_date"], TXT_GROUP % t["ch_p_best"])),
+        (TXT_CH_P_DAILY_NONE, "<scale 0.6>%s %s, %s</scale>" % (
+            TXT_GROUP % t["ch_p_daily"], t["ch_p_date"], t["ch_p_best_none"])),
+        (TXT_CH_R_TIME, t["ch_r_time"]), (TXT_CH_R_BEST, t["ch_r_best"]),
+        (TXT_CH_R_NEW, CH_R_NEW_COLOR % t["ch_r_new"]),
+        (TXT_CH_P_RANDOM, "<scale 0.6>%s %s</scale>" % (TXT_GROUP % t["ch_p_random"], t["ch_p_seed"])),
+        (TXT_CH_P_DRAW, "<scale 0.5>, %s %%s, %s, %s %%s</scale>" % (
+            TXT_GROUP % t["ch_p_track"], t["ch_p_from"], TXT_GROUP % t["ch_p_driver"])),
     ] + [(TXT_CH_CHAR0 + k, name) for k, name in enumerate(t["chars"])] + [
         (TXT_TOP_PAUSE[1], "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (272, t["load"]), (273, t["save"]), (274, t["rename"]), (275, t["delete"]),
@@ -1030,6 +1083,9 @@ def text_overrides(lang="de", version=None, lines_only=False):
                for n in TXT_LIMIT + (TXT_LIMIT_LOW, TXT_LIMIT_OVER))
     assert (len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999)
             + len(longest[TXT_PAUSE_OPP[0]] % opp_widest) < OWN_VALUES_BUF)
+    assert (len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999)
+            + len(longest[TXT_CH_P_DRAW] % ("x" * 0x1F, 9999, 100, "x" * 0x1F)) < PAUSE_FRAME - 0x180)
+    assert len(longest[TXT_CH_P_DAILY] % (31, 12, 30000, "99:99:99")) < 0x100
     assert (len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999)
             + len(longest[TXT_PAUSE_OPP[1]] % opp_widest) < OWN_VALUES_BUF)
     if lines_only:
@@ -3592,13 +3648,16 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # race with opponents the two values of "Gegner" follow the top speed, in every class.
     # Stack: +0 class name, +20h "An"/"Aus", +40h preset name, +60h the line (tuning class),
     # +160h the eight values (words in the tuning class, else dwords), +180h the values text
-    # (tuning class) or the line with the top speed (the others).
+    # (tuning class) or the line with the top speed (the others), up to the end of the frame.
     a.label("pause_info")
     a.raw("C7 86 44 01 00 00 FF FF FF FF", "mov         dword ptr [esi+00000144h],0FFFFFFFFh")   # displaced
     a.raw("60", "pushad")
     a.call("tune_base")
     t_mov("ebx", GP_POINTER)
-    a.raw("81 EC 00 03 00 00", "sub         esp,300h")
+    a.raw("81 EC " + _le(PAUSE_FRAME), "sub         esp,%s" % _imm(PAUSE_FRAME))
+    disp = tdisp(CH_ACTIVE)
+    a.raw("83 BD %s 00" % _le(disp), "cmp         dword ptr [ebp+%08Xh],0" % disp)
+    a.jcc_near("jne", "pause_ch")                 # a challenge: its own lines
     a.raw("8B 4B 10", "mov         ecx,dword ptr [ebx+10h]")                     # the class
     a.raw("81 C1 " + _le(TXT_CLASS0), "add         ecx,%s" % _imm(TXT_CLASS0))
     a.raw("51", "push        ecx")
@@ -3698,7 +3757,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8B CE", "mov         ecx,esi")
     a.call(ADD_LABEL)
     a.label("pause_info_done")
-    a.raw("81 C4 00 03 00 00", "add         esp,300h")
+    a.raw("81 C4 " + _le(PAUSE_FRAME), "add         esp,%s" % _imm(PAUSE_FRAME))
     a.raw("61", "popad")
     a.jmp(PAUSE_PAGE_DONE)
 
@@ -4125,7 +4184,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("55", "push        ebp")
     a.call("tune_base")
     t_active()
-    a.jcc_short("je", "ch_finish_stock")
+    a.jcc_near("je", "ch_finish_stock")
     a.raw("85 DB", "test        ebx,ebx")
     a.jcc_short("jne", "ch_finish_not")
     a.raw("D9 86 24 02 00 00", "fld         dword ptr [esi+00000224h]")
@@ -4149,12 +4208,14 @@ def build_payload(base, factors, pulls, known=None, version=None):
     fpu_flags(0x01)
     a.jcc_short("jne", "ch_finish_not")          # done < length
     # the time: the game sums the three lap times (fn 0x4378D0), and a challenge counts no lap,
-    # so its lap timer becomes lap 1
+    # so its lap timer becomes lap 1. The lap counter becomes 3: at the race end fn 0x437920
+    # gives every kart with fewer laps estimated times (about 90 s) for the missing laps.
     a.raw("8B 86 50 02 00 00", "mov         eax,dword ptr [esi+00000250h]")
     a.raw("89 86 58 02 00 00", "mov         dword ptr [esi+00000258h],eax")
     a.raw("33 C0", "xor         eax,eax")
     a.raw("89 86 5C 02 00 00", "mov         dword ptr [esi+0000025Ch],eax")
     a.raw("89 86 60 02 00 00", "mov         dword ptr [esi+00000260h],eax")
+    a.raw("C7 86 64 02 00 00 03 00 00 00", "mov         dword ptr [esi+00000264h],3")
     a.raw("5D", "pop         ebp")
     a.jmp(CH_FINISH_GO)
     a.label("ch_finish_not")
@@ -4260,6 +4321,263 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_near("je", TOP_FIVE)
     a.raw("32 C0", "xor         al,al")
     a.raw("C2 0C 00", "ret         0Ch")
+
+    # The phantom's driver at race start (in place of "mov ebp,[edi+eax+0A9ECh]", eax =
+    # GameParameters): in a challenge player 1's character, the driver of every challenge phantom.
+    a.label("ch_ghostchar")
+    a.call("tune_base")
+    t_active()
+    a.raw("8B AC 07 EC A9 00 00", "mov         ebp,dword ptr [edi+eax+0000A9ECh]")   # displaced
+    a.jcc_short("je", "ch_ghostchar_done")
+    a.raw("8B 68 58", "mov         ebp,dword ptr [eax+58h]")
+    a.label("ch_ghostchar_done")
+    a.raw("C3", "ret")
+
+    # The result overlay (esi = menu): in a challenge no lap lines, but "Deine Zeit" and, in a
+    # daily one, the best time of the day or "Neue Bestzeit!". Frame: +0 a std::string, +40h the
+    # text.
+    a.label("ch_result")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.raw("5D", "pop         ebp")
+    a.jcc_short("jne", "ch_result_ch")
+    a.raw("53", "push        ebx")                                               # displaced
+    a.raw("53", "push        ebx")
+    a.call(0x004017F0)
+    a.jmp(CH_RESULT_BACK)
+
+    def time_line(src_disp, text_id):    # the text at +40h: text_id with the time at [ebx+src_disp]
+        a.raw("FF B3 " + _le(src_disp), "push        dword ptr [ebx+%08Xh]" % src_disp)
+        a.raw("8D 44 24 04", "lea         eax,[esp+4]")
+        a.raw("50", "push        eax")
+        a.raw("8B CE", "mov         ecx,esi")
+        a.call(TIME_TEXT)
+        a.raw("8B C8", "mov         ecx,eax")
+        a.call(STR_CSTR)
+        a.raw("50", "push        eax")
+        a.raw("68 " + _le(text_id), "push        %s" % _imm(text_id))
+        a.raw("8D 44 24 48", "lea         eax,[esp+48h]")
+        a.raw("50", "push        eax")
+        a.call("tune_printf")
+        a.raw("83 C4 0C", "add         esp,0Ch")
+        a.raw("8B CC", "mov         ecx,esp")
+        a.call(STR_DTOR)
+
+    def result_label(y):
+        a.raw("68 " + _le(y), "push        %s" % _imm(y))
+        a.raw("8D 44 24 44", "lea         eax,[esp+44h]")
+        a.raw("50", "push        eax")
+        a.raw("8B CE", "mov         ecx,esi")
+        a.call(ADD_LABEL)
+
+    a.label("ch_result_ch")
+    a.raw("60", "pushad")
+    a.call("tune_base")
+    t_mov("ebx", GP_POINTER)
+    a.raw("81 EC 40 01 00 00", "sub         esp,140h")
+    time_line(PHANTOM_RUN + 0x58, TXT_CH_R_TIME)
+    result_label(CH_R_Y[0])
+    t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_near("je", "ch_result_done")                # random: no best time
+    t_mem("8B", 1, CH_NEWBEST, "mov         ecx,dword ptr %s")
+    a.raw("85 C9", "test        ecx,ecx")
+    a.jcc_short("je", "ch_result_best")
+    a.raw("68 " + _le(TXT_CH_R_NEW), "push        %s" % _imm(TXT_CH_R_NEW))
+    a.raw("8D 44 24 44", "lea         eax,[esp+44h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 08", "add         esp,8")
+    a.jmp_short("ch_result_line")
+    a.label("ch_result_best")
+    a.raw("81 BB %s %s" % (_le(DAILY_ENTRY), _le(DAILY_MAGIC)),
+          "cmp         dword ptr [ebx+%08Xh],%s" % (DAILY_ENTRY, _imm(DAILY_MAGIC)))
+    a.jcc_near("jne", "ch_result_done")
+    a.raw("3B 83 " + _le(DAILY_ENTRY + 4), "cmp         eax,dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 4))
+    a.jcc_near("jne", "ch_result_done")
+    time_line(DAILY_ENTRY + 8, TXT_CH_R_BEST)
+    a.label("ch_result_line")
+    result_label(CH_R_Y[1])
+    a.label("ch_result_done")
+    a.raw("81 C4 40 01 00 00", "add         esp,140h")
+    a.raw("61", "popad")
+    a.jmp(CH_RESULT_END)
+
+    # eax = a day (days since 1601-01-01): eax = day of the month, ecx = month, edx = year
+    # (H. Hinnant's civil_from_days; Python mirror challenge_date).
+    def div_by(n):                       # eax = eax / n, edx = eax % n (unsigned)
+        a.raw("33 D2", "xor         edx,edx")
+        a.raw("B9 " + _le(n), "mov         ecx,%s" % _imm(n))
+        a.raw("F7 F1", "div         eax,ecx")
+    a.label("ch_date")
+    a.raw("53", "push        ebx")
+    a.raw("56", "push        esi")
+    a.raw("57", "push        edi")
+    a.raw("05 " + _le(CH_DAYS_1601_TO_0), "add         eax,%s" % _imm(CH_DAYS_1601_TO_0))
+    div_by(146097)
+    a.raw("69 D8 " + _le(400), "imul        ebx,eax,%s" % _imm(400))            # era * 400
+    a.raw("8B F2", "mov         esi,edx")                                     # doe
+    a.raw("8B C6", "mov         eax,esi")
+    div_by(1460)
+    a.raw("8B FE", "mov         edi,esi")
+    a.raw("2B F8", "sub         edi,eax")
+    a.raw("8B C6", "mov         eax,esi")
+    div_by(36524)
+    a.raw("03 F8", "add         edi,eax")
+    a.raw("8B C6", "mov         eax,esi")
+    div_by(146096)
+    a.raw("2B F8", "sub         edi,eax")
+    a.raw("8B C7", "mov         eax,edi")
+    div_by(365)                                                                  # yoe
+    a.raw("03 D8", "add         ebx,eax")
+    a.raw("69 F8 " + _le(365), "imul        edi,eax,%s" % _imm(365))
+    a.raw("8B C8", "mov         ecx,eax")
+    a.raw("C1 E9 02", "shr         ecx,2")
+    a.raw("03 F9", "add         edi,ecx")
+    div_by(100)
+    a.raw("2B F8", "sub         edi,eax")
+    a.raw("2B F7", "sub         esi,edi")                                     # doy
+    a.raw("8D 44 B6 02", "lea         eax,[esi+esi*4+2]")
+    div_by(153)                                                                  # mp
+    a.raw("8B F8", "mov         edi,eax")
+    a.raw("69 C0 " + _le(153), "imul        eax,eax,%s" % _imm(153))
+    a.raw("83 C0 02", "add         eax,2")
+    div_by(5)
+    a.raw("2B F0", "sub         esi,eax")
+    a.raw("46", "inc         esi")                                           # day
+    a.raw("8D 4F 03", "lea         ecx,[edi+3]")                                 # month
+    a.raw("83 FF 0A", "cmp         edi,0Ah")
+    a.jcc_short("jb", "ch_date_month")
+    a.raw("83 E9 0C", "sub         ecx,0Ch")
+    a.label("ch_date_month")
+    a.raw("83 F9 02", "cmp         ecx,2")
+    a.jcc_short("ja", "ch_date_year")
+    a.raw("43", "inc         ebx")
+    a.label("ch_date_year")
+    a.raw("8B C6", "mov         eax,esi")
+    a.raw("8B D3", "mov         edx,ebx")
+    a.raw("5F", "pop         edi")
+    a.raw("5E", "pop         esi")
+    a.raw("5B", "pop         ebx")
+    a.raw("C3", "ret")
+
+    # The pause page in a challenge (from pause_info: esi = menu, ebx = GameParameters, ebp =
+    # tune_T, its frame): the line with the challenge (daily: the date and the best time;
+    # random: the seed), then the values, the top speed, the track and the driver.
+    # Frame: +0, +20h two std::strings, +60h the line, +160h the values as words, +170h..17Fh
+    # numbers, +180h the values text.
+    a.label("pause_ch")
+    a.raw("33 FF", "xor         edi,edi")                                     # no string at +0 yet
+    t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_near("je", "pause_ch_random")
+    a.raw("C7 84 24 70 01 00 00 " + _le(TXT_CH_P_DAILY_NONE), "mov         dword ptr [esp+00000170h],%s" % _imm(TXT_CH_P_DAILY_NONE))
+    a.raw("C7 84 24 74 01 00 00 00 00 00 00", "mov         dword ptr [esp+00000174h],0")
+    a.raw("81 BB %s %s" % (_le(DAILY_ENTRY), _le(DAILY_MAGIC)),
+          "cmp         dword ptr [ebx+%08Xh],%s" % (DAILY_ENTRY, _imm(DAILY_MAGIC)))
+    a.jcc_short("jne", "pause_ch_date")
+    a.raw("3B 83 " + _le(DAILY_ENTRY + 4), "cmp         eax,dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 4))
+    a.jcc_short("jne", "pause_ch_date")
+    a.raw("FF B3 " + _le(DAILY_ENTRY + 8), "push        dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 8))
+    a.raw("8D 44 24 04", "lea         eax,[esp+4]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(TIME_TEXT)
+    a.raw("8B C8", "mov         ecx,eax")
+    a.call(STR_CSTR)
+    a.raw("89 84 24 74 01 00 00", "mov         dword ptr [esp+00000174h],eax")
+    a.raw("47", "inc         edi")
+    a.raw("C7 84 24 70 01 00 00 " + _le(TXT_CH_P_DAILY), "mov         dword ptr [esp+00000170h],%s" % _imm(TXT_CH_P_DAILY))
+    a.label("pause_ch_date")
+    t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
+    a.call("ch_date")
+    a.raw("FF B4 24 74 01 00 00", "push        dword ptr [esp+00000174h]")    # the best time
+    a.raw("52", "push        edx")
+    a.raw("51", "push        ecx")
+    a.raw("50", "push        eax")
+    a.raw("FF B4 24 80 01 00 00", "push        dword ptr [esp+00000180h]")    # the text id
+    a.raw("8D 44 24 74", "lea         eax,[esp+74h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 18", "add         esp,18h")
+    a.jmp_short("pause_ch_head")
+    a.label("pause_ch_random")
+    t_mem("FF", 6, CH_SEED0, "push        dword ptr %s")
+    a.raw("68 " + _le(TXT_CH_P_RANDOM), "push        %s" % _imm(TXT_CH_P_RANDOM))
+    a.raw("8D 44 24 68", "lea         eax,[esp+68h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.label("pause_ch_head")
+    a.raw("85 FF", "test        edi,edi")
+    a.jcc_short("je", "pause_ch_line")
+    a.raw("8B CC", "mov         ecx,esp")
+    a.call(STR_DTOR)
+    a.label("pause_ch_line")
+    a.raw("68 " + _le(PAUSE_Y_HEAD), "push        %s" % _imm(PAUSE_Y_HEAD))
+    a.raw("8D 44 24 64", "lea         eax,[esp+64h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    # the values and the top speed, as in the tuning class
+    for k in range(PRESET_VALUES):
+        a.raw("8B 83 " + _le(TUNE_VALUES + 4 * k), "mov         eax,dword ptr [ebx+%08Xh]" % (TUNE_VALUES + 4 * k))
+        a.raw("66 89 84 24 %s" % _le(0x160 + 2 * k), "mov         word ptr [esp+%08Xh],ax" % (0x160 + 2 * k))
+    a.raw("8D 94 24 60 01 00 00", "lea         edx,[esp+00000160h]")
+    a.raw("8D 84 24 80 01 00 00", "lea         eax,[esp+00000180h]")
+    a.raw("56", "push        esi")
+    a.raw("BE " + _le(TXT_PAUSE_VALUES), "mov         esi,%s" % _imm(TXT_PAUSE_VALUES))
+    a.call("values_text_id")
+    a.raw("5E", "pop         esi")
+    a.raw("8D BC 24 80 01 00 00", "lea         edi,[esp+00000180h]")
+    a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
+    a.raw("B8 " + _le(TXT_TOP_PAUSE[0]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[0]))
+    a.call("top_text")
+    # track, metres, start, driver behind the top speed
+    a.raw("8B 43 20", "mov         eax,dword ptr [ebx+20h]")
+    a.raw("05 " + _le(TXT_TRACK0), "add         eax,%s" % _imm(TXT_TRACK0))
+    a.raw("8B D4", "mov         edx,esp")
+    a.call("ch_text")
+    a.raw("89 84 24 70 01 00 00", "mov         dword ptr [esp+00000170h],eax")
+    a.raw("8B 43 58", "mov         eax,dword ptr [ebx+58h]")
+    a.raw("05 " + _le(TXT_CH_CHAR0), "add         eax,%s" % _imm(TXT_CH_CHAR0))
+    a.raw("8D 54 24 20", "lea         edx,[esp+20h]")
+    a.call("ch_text")
+    a.raw("89 84 24 74 01 00 00", "mov         dword ptr [esp+00000174h],eax")
+    a.raw("8B 4B 20", "mov         ecx,dword ptr [ebx+20h]")
+    t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
+    disp = tdisp("ch_paths")
+    a.raw("D8 8C 8D " + _le(disp), "fmul        dword ptr [ebp+ecx*4+%08Xh]" % disp)
+    a.raw("DB 9C 24 78 01 00 00", "fistp       dword ptr [esp+00000178h]")
+    t_mem("D9", 0, CH_START, "fld         dword ptr %s")
+    t_mem("D8", 1, "ch_hundred", "fmul        dword ptr %s")
+    a.raw("DB 9C 24 7C 01 00 00", "fistp       dword ptr [esp+0000017Ch]")
+    a.raw("8B D7", "mov         edx,edi")
+    a.label("pause_ch_end")
+    a.raw("80 3A 00", "cmp         byte ptr [edx],0")
+    a.jcc_short("je", "pause_ch_print")
+    a.raw("42", "inc         edx")
+    a.jmp_short("pause_ch_end")
+    a.label("pause_ch_print")
+    a.raw("FF B4 24 74 01 00 00", "push        dword ptr [esp+00000174h]")    # driver
+    a.raw("FF B4 24 80 01 00 00", "push        dword ptr [esp+00000180h]")    # start in percent
+    a.raw("FF B4 24 80 01 00 00", "push        dword ptr [esp+00000180h]")    # metres
+    a.raw("FF B4 24 7C 01 00 00", "push        dword ptr [esp+0000017Ch]")    # track
+    a.raw("68 " + _le(TXT_CH_P_DRAW), "push        %s" % _imm(TXT_CH_P_DRAW))
+    a.raw("52", "push        edx")
+    a.call("tune_printf")
+    a.raw("83 C4 18", "add         esp,18h")
+    a.raw("8B CC", "mov         ecx,esp")
+    a.call(STR_DTOR)
+    a.raw("8D 4C 24 20", "lea         ecx,[esp+20h]")
+    a.call(STR_DTOR)
+    a.raw("68 " + _le(PAUSE_Y_VALUES), "push        %s" % _imm(PAUSE_Y_VALUES))
+    a.raw("8D 84 24 84 01 00 00", "lea         eax,[esp+00000184h]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(ADD_LABEL)
+    a.jmp("pause_info_done")
 
     # The ghost's file name at race start and restart: in a challenge, an empty name.
     for k, (va, orig, str_off) in enumerate(CH_GHOST_HOOKS):
@@ -4395,6 +4713,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("40", "inc         eax")
     a.label("ch_draw_seed")
     t_mem("89", 0, CH_SEED, "mov         dword ptr %s,eax")
+    t_mem("89", 0, CH_SEED0, "mov         dword ptr %s,eax")
     ch_mod(8)
     a.raw("89 43 20", "mov         dword ptr [ebx+20h],eax")         # track
     ch_mod(1000)
@@ -5615,6 +5934,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # ... a challenge run (ebp = tune_T, inside the pushad above): only a daily one that beats
     # the best time of the day is kept, as data\Phantom\daily-<day>.mhk2, its time in DAILY_ENTRY.
     a.label("ch_promote")
+    disp = tdisp(CH_NEWBEST)
+    a.raw("C7 85 %s 00 00 00 00" % _le(disp), "mov         dword ptr [ebp+%08Xh],0" % disp)
     t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
     a.raw("85 C0", "test        eax,eax")
     a.jcc_near("je", "phantom_promote_done")
@@ -5654,6 +5975,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("89 83 " + _le(DAILY_ENTRY + 4), "mov         dword ptr [ebx+%08Xh],eax" % (DAILY_ENTRY + 4))
     a.raw("8B 46 58", "mov         eax,dword ptr [esi+58h]")
     a.raw("89 83 " + _le(DAILY_ENTRY + 8), "mov         dword ptr [ebx+%08Xh],eax" % (DAILY_ENTRY + 8))
+    a.raw("C7 85 %s 01 00 00 00" % _le(tdisp(CH_NEWBEST)), "mov         dword ptr [ebp+%08Xh],1" % tdisp(CH_NEWBEST))
     a.jmp("phantom_promote_done")
 
     # A name was typed for a new time trial highscore (in place of the call that
@@ -6030,6 +6352,8 @@ def site_patches(labels):
          "challenge: finished after the challenge's stretch instead of 3 laps")
     jump(CH_LAPID_HOOK, "6A 64 52 89 78 34", "ch_lapid", "challenge: metres left instead of the lap (text)")
     jump(CH_LAPNUM_HOOK, "8B 54 8E 20 42", "ch_lapnum", "challenge: metres left instead of the lap (number)")
+    call(CH_GHOSTCHAR_HOOK, CH_GHOSTCHAR_ORIG, "ch_ghostchar", "challenge: the phantom drives the challenge's character")
+    jump(CH_RESULT_HOOK, CH_RESULT_ORIG, "ch_result", "challenge: the result overlay shows the total, no laps")
     jump(CH_MAP_HOOK, "C7 44 01 F4 C0 C0 C0 FF", "ch_mapcol", "challenge: the stretch in colour on the minimap")
     for va in TOP_FIVE_CALLS:
         retarget(va, TOP_FIVE, "ch_top5", "challenge: no highscore entry")

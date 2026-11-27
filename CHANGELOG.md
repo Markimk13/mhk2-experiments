@@ -13,11 +13,12 @@ versions stay.
 - Challenges: *Täglich* (daily) gives the same challenge to all players on one day. The page
   shows your best time of the day, and your best run of the day races with you as the phantom.
 - Challenges: the race shows the metres to the finish, and the minimap shows the stretch in
-  colour.
+  colour. The pause page shows the challenge: the date or the seed, the values, the track and
+  your driver. The result shows your time and, in a daily challenge, your best time of the day.
 
 ### For developers
 
-- New menu page 22h, texts 105 and 150 to 166, and the best time of the day in an unused
+- New menu page 22h, texts 105 and 150 to 170, and the best time of the day in an unused
   highscore entry (offset 0x2BAC, marker `DAYC`). Details:
   [How it works](docs/how-it-works.md#challenges).
 - The patch section `.mod200` has 28 KB now (24 KB before).

@@ -36,12 +36,18 @@ track, driver and tuning values are back when you leave.
   1000 to 1600 m long, which is 30 % to 70 % of the track. At 200 to 250 km/h, it takes 15 to
   30 seconds.
 - **Metres to go.** The top left shows *Noch 340 m* (340 m to go) instead of the lap.
-- **The minimap.** It shows the stretch in yellow and the finish in white. The rest of the
+- **The minimap.** It shows the stretch in magenta and the finish in white. The rest of the
   track is grey.
+- **The pause page.** It shows the challenge: *Tägliche Herausforderung* (daily challenge) with
+  the date and your best time of the day, or *Zufällige Herausforderung* (random challenge)
+  with its seed. Below are the tuning values, the top speed, the track, the stretch and your
+  driver.
 - **The kart.** A challenge always uses the tuning class, with values that are hard but drivable.
   The tuning page would call them *Am Limit* or *Hart am Limit*
   ([Tuning class](tuning-class.md)). The switch *60-FPS-Fahrphysik* is on for the race.
-- **The finish.** The race ends after the stretch. The result page shows your time.
+- **The finish.** The race ends after the stretch. The result page shows *Deine Zeit* (your
+  time). In a daily challenge, the line below shows your best time of the day, or *Neue
+  Bestzeit!* (new best time) in green.
   *Rennen wiederholen* (repeat the race) starts the same stretch again.
 
 ![challenge race](../screenshots/19-challenge-race.png)
@@ -49,7 +55,7 @@ track, driver and tuning values are back when you leave.
 ## Records and phantoms
 
 - **Täglich.** The page shows your best time of the day. Your best run of the day becomes the
-  phantom, and the next race of the day shows it. The phantom file is
+  phantom, and the next race of the day shows it with the driver of the day. The phantom file is
   `data\Phantom\daily-<day>.mhk2`. A new day starts without a time and without a phantom.
 - **Zufall.** The game keeps no time and no phantom.
 - **Normal records.** A challenge never changes your records, your highscore lists or the

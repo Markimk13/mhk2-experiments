@@ -17,7 +17,11 @@ Steps (pictures in <out dir>):
 4. After the finish: the result overlay's "Weiter" leads to the result list (no name entry); daily:
    data\\Phantom\\daily-<day>.mhk2 and the best time in GameParameters.
 5. "Hauptmenü": the player's settings are back in GameParameters, the challenge is off.
-6. Daily only: "Täglich" again shows the best time, and the race loads the phantom of the day.
+6. Daily only: "Täglich" again shows the best time, and the race loads the phantom of the day,
+   driven by the challenge's character.
+7. The pause page of a challenge race (daily: the second race; random: a new draw): the line with
+   the challenge (date and best time / seed) and track and driver behind the values.
+The result overlay (page 0Eh) shows the total only, no lap lines.
 """
 import os
 import shutil
@@ -35,8 +39,11 @@ import ghosttest as T
 import classtest as C
 import harness as H
 import patch_200cc as P
+import pause_look as PL
 
 MENU_INJ = 0x00884F10          # one-shot back, select, left, right (test builds)
+TRACKS = ("Moorhuhn X", "Winter", "Insel", "Ägypten", "Fabrik", "Bergwerk", "Burg", "Sumpf")
+CHARS = ("Moorhuhn", "Lesshuhn", "Moorfrosch", "Kürbis", "Schneemann", "Schildkröte", "Hank")
 CH_FIELDS = (("class", 0x10), ("mode", 0x1C), ("track", 0x20), ("phys", 0x4C), ("char", 0x58))
 results = []
 
@@ -78,6 +85,52 @@ def show(g, title):
     print("--", title, "page %02X" % g.menu_state())
     for n, (typ, y, text) in enumerate(C.items(g)):
         print("   %2d type %d y %4d  %s" % (n, typ, y, text[:110]))
+
+
+def overlay_texts(g):
+    st = g.u32(g.u32(0x5E851C) + 4)
+    return [t for _, t in PL.items(g, g.u32(st + 0x144))]
+
+
+def ghost_char(g):
+    """The character of the phantom car (byte +2ACh set) in the car list, or None."""
+    cm = g.u32(0x5E8520)
+    begin, end = g.u32(cm + 0x10), g.u32(cm + 0x14)
+    for a in range(begin, end, 4):
+        car = g.u32(a)
+        if car and g.read(car + 0x2AC, 1)[0] == 1:
+            return i32(g, car + 0x330)
+    return None
+
+
+def pause_check(g, out, daily, drawn, start, length):
+    menu, page = PL.pause(g)
+    texts = [t for _, t in PL.items(g, menu)]
+    print("-- pause page %02X" % page)
+    for t in texts:
+        print("   ", t[:160])
+    g.shot(os.path.join(out, "7_pause.png"))
+    head = next((t for t in texts if "Herausforderung" in t), "")
+    if daily:
+        day = i32(g, P.CH_DAY)
+        d, m, y = P.challenge_date(day)
+        best = f32(g, g.gp + P.DAILY_ENTRY + 8)
+        mmss = "%02d:%02d:%02d" % (int(best) // 60, int(best) % 60, int(best * 100) % 100)
+        check("pause: 'Tägliche Herausforderung', the date and the best time",
+              "Tägliche Herausforderung:" in head and "%02d.%02d.%d" % (d, m, y) in head and "Bestzeit:" in head
+              and mmss[:5] in head, repr(head))
+    else:
+        seed = g.u32(P.CH_SEED0)
+        track, st, share, char, values = P.challenge_draw(seed)
+        check("pause: 'Zufällige Herausforderung' and the seed of the draw",
+              "Zufällige Herausforderung:" in head and "Seed %u" % seed in head
+              and (drawn["track"], drawn["char"], drawn["values"]) == (track, char, values), repr(head))
+    check("pause: no class, no preset", not any("Klasse" in t or "Vorlage" in t for t in texts))
+    metres = round(length * P.CH_PATHS[drawn["track"]])
+    line = next((t for t in texts if "Strecke:" in t), "")
+    check("pause: the values, the top speed, track, metres, start and driver in one label",
+          "Übersetzung" in line and "Top speed" in line and TRACKS[drawn["track"]] in line
+          and "%d m ab %d %%" % (metres, round(start * 100)) in line and CHARS[drawn["char"]] in line, repr(line))
 
 
 def main():
@@ -193,6 +246,18 @@ def run(g, out, daily):
         return
     run_time = f32(g, g.gp + P.PHANTOM_RUN + 0x58)
     check("the run has a time", 0.5 < run_time < 60, "%.2f s" % run_time)
+    time.sleep(1.0)
+    texts = overlay_texts(g)
+    print("-- result overlay:", texts)
+    g.shot(os.path.join(out, "4b_result.png"))
+    mmss = "Deine Zeit: %02d:%02d:" % (int(run_time) // 60, int(run_time) % 60)
+    check("result overlay: 'Deine Zeit' with the run's time, no lap lines, no 'Gesamt'", any(mmss in t for t in texts)
+          and not any("Runde" in t or "Gesamt" in t for t in texts), "%r, run %.2f s" % (texts, run_time))
+    if daily:        # the first run of the day
+        check("result overlay: 'Neue Bestzeit!' in green", any(t == P.CH_R_NEW_COLOR % "Neue Bestzeit!" for t in texts),
+              repr(texts))
+    else:
+        check("result overlay: no best time in a random challenge", not any("Bestzeit" in t for t in texts), repr(texts))
     page = g.select(0)
     check("result 'Weiter' leads to the result list (no name entry)", page == 0x0F, "page %s" % page)
     phantom = os.path.join(T.PH, "daily-%d.mhk2" % day)
@@ -220,6 +285,20 @@ def run(g, out, daily):
     check("the repeated stretch is finished", ok)
     if not ok:
         return
+    if daily:
+        time.sleep(1.0)
+        texts = overlay_texts(g)
+        print("-- result overlay, second run:", texts)
+        g.shot(os.path.join(out, "4c_result_again.png"))
+        run2 = f32(g, g.gp + P.PHANTOM_RUN + 0x58)
+        best = f32(g, g.gp + P.DAILY_ENTRY + 8)
+        if run2 < run_time:
+            want = P.CH_R_NEW_COLOR % "Neue Bestzeit!"
+        else:
+            want = "Bestzeit: %02d:%02d:" % (int(best) // 60, int(best) % 60)
+        check("result overlay, second run: 'Neue Bestzeit!' only when faster, else 'Bestzeit'",
+              any(want in t for t in texts) and best == min(run_time, run2),
+              "%r; runs %.3f / %.3f, best %.3f" % (texts, run_time, run2, best))
     check("again the result list", g.select(0) == 0x0F)
     # 5. back to the main menu
     n0 = g.init_count()
@@ -230,6 +309,21 @@ def run(g, out, daily):
     check("the challenge is off", i32(g, P.CH_ACTIVE) == 0)
     check("the player's settings are back", settings_of(g) == own, str(settings_of(g)))
     if not daily:
+        # 7. a new random draw, its race and the pause page
+        g.page(P.PAGE_MODE)
+        time.sleep(0.5)
+        press(g, P.MODE_ITEM_CH)
+        press(g, P.CH_ITEM_RANDOM)
+        drawn = settings_of(g)
+        start, length = f32(g, P.CH_START), f32(g, P.CH_LEN)
+        n0 = g.init_count()
+        press(g, P.CH_ITEM_NEXT, wait=0.2)
+        t0 = time.time()
+        while g.init_count() == n0 and time.time() - t0 < 90:
+            time.sleep(0.5)
+        check("the race of the new draw starts", T.wait_racing(g))
+        time.sleep(1.0)
+        pause_check(g, out, False, drawn, start, length)
         return
     # 6. the daily challenge again: best time, ghost
     g.page(P.PAGE_MODE)
@@ -248,7 +342,13 @@ def run(g, out, daily):
         time.sleep(0.5)
     time.sleep(3.0)
     check("the race loads the phantom of the day", g.read(g.gp + 0x54, 1)[0] == 1)
+    gc = ghost_char(g)
+    check("the phantom drives the challenge's character", gc == drawn["char"], "phantom %s, draw %d" % (gc, drawn["char"]))
     g.shot(os.path.join(out, "6_ghost.png"))
+    check("the race runs", T.wait_racing(g))
+    time.sleep(1.0)
+    # 7. the pause page
+    pause_check(g, out, True, drawn, start, length)
 
 
 if __name__ == "__main__":

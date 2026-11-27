@@ -70,7 +70,7 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Menu.** The page *Rennmodus* (menu page 4) is built by the game from a table. After that, the
   patch turns its item 3, the label *Zwei Spieler*, into the button *Herausforderung* and adds
   the label again behind the items. So the item numbers of the game's buttons stay the same. The
-  button opens the new menu page 22h. Its texts are 150 to 166 in `text-20.csv`.
+  button opens the new menu page 22h. Its texts are 150 to 170 in `text-20.csv`.
 - **The draw.** A seed starts an xorshift32 generator: `x ^= x << 13; x ^= x >> 17;
   x ^= x << 5`. Five numbers follow, in this order: the track (% 8), the start (% 1000, per
   mille of the track's path), the length (1000 + % 601 metres, as a share of the path, kept in
@@ -94,14 +94,26 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Finish.** The race update tests "3 laps" at 0x406B5A. In a challenge, it adds up the path
   progress of player 1 instead (each step taken into −0.5 to 0.5, so the wrap at 0 counts
   right). The race ends at the challenge's length. The lap timer becomes lap 1, because the
-  game takes the time from the sum of the three lap times.
+  game takes the time from the sum of the three lap times. The lap counter becomes 3: at the
+  race end, fn 0x437920 gives every kart with fewer laps estimated lap times of about 90 s.
+- **Result.** The result overlay (page 0Eh) adds the lines *Runde 1* to *Runde 3* and *Gesamt*
+  from 0x422643 on. In a challenge, the patch adds its own lines instead (texts 168 to 170) and
+  continues at 0x4233B5: the run's time and, in a daily challenge, the best time of the day or
+  *Neue Bestzeit!*. The copy of a faster daily run sets a flag for that.
 - **HUD.** The lap line (text 100 at 0x419078) becomes text 105 with the metres:
   (length − progress) × path length. The minimap gives each vertex of its track line its colour
-  at 0x418C28. A challenge colours the stretch yellow, the finish white and the rest dim.
+  at 0x418C28. A challenge colours the stretch magenta, the finish white and the rest dim.
+- **Pause page.** In a challenge, the pause page gets other lines than in the tuning class:
+  *Tägliche Herausforderung* with the date and the best time of the day, or *Zufällige
+  Herausforderung* with the seed. Then the values, the top speed, the track and the driver. The
+  date comes from the day number with H. Hinnant's `civil_from_days` (`challenge_date()` in the
+  patcher).
 - **Records and phantoms.** In a challenge, the result pages' "top five" test (0x412A90) says no,
   and the best-run copy skips the track's phantom. Both phantom loads (race start, restart) get
   an empty file name for *Zufall* and `data\Phantom\daily-<day>.mhk2` for *Täglich*. A faster
-  daily run is copied to that file.
+  daily run is copied to that file. The race start takes the phantom's character from the
+  header of the track's phantom file (0x4099B1). In a challenge, it takes player 1's character
+  instead: the daily draw always gives the same driver.
 
 ## 60 FPS physics switch
 
