@@ -97,7 +97,7 @@ IMAGE_BASE = 0x400000
 SECTION_NAME = b".mod200\0"
 SECTION_RVA = 0x4C0000          # == SizeOfImage of the original
 SECTION_RAW = ORIGINAL_SIZE     # appended at the end of the file
-SECTION_SIZE = 0x7000            # 28 KB since the challenges (24 KB since the learned driver tables, 16 KB since the geometric driver)
+SECTION_SIZE = 0x8000            # 32 KB since the medals (28 KB since the challenges, 24 KB since the learned driver tables, 16 KB since the geometric driver)
 SIGNATURE_PREFIX = b"MHK2 200cc mod"
 TXT_VERSION = 305           # the main menu's version line
 # The two new classes pull harder than the stock ones (PULL: thrust and traction limit, the way
@@ -376,6 +376,52 @@ def challenge_draw(seed):
     return track, start, share, char, values
 
 
+def challenge_pace_cum():
+    """Per track the 65 points of the cumulative lap time over the path (0 at progress 0, 1 at
+    progress 1), from CH_PACE_SHAPE, as float32 (the table ch_cum_tab)."""
+    out = []
+    for shape in CH_PACE_SHAPE:
+        total, run, cum = sum(shape), 0, []
+        for j in range(65):
+            cum.append(_f32(run / total))
+            if j < 64:
+                run += shape[j]
+        out.append(cum)
+    return out
+
+
+def _f32(x):
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def challenge_medals(seed):
+    """The gold, silver and bronze times of a draw (mirrors ch_medals): the reference time
+    = (lap time of the track * factor of the set * share of the lap time over the stretch
+    + standing loss of the set) * factor of the character; each medal a factor on it, rounded to
+    hundredths, plus CH_MEDAL_UP hundredths."""
+    track, start, share, char, _ = challenge_draw(seed)
+    s = _draw_set(seed)
+    cum = challenge_pace_cum()[track]
+
+    def c(p):
+        j = min(max(int(p * 64), 0), 63)
+        return cum[j] + (p * 64 - j) * (cum[j + 1] - cum[j])
+    e = _f32(start + share)
+    part = c(e - 1.0) + 1.0 if e >= 1.0 else c(e)
+    ref = ((part - c(start)) * CH_PACE_LAP[track] * CH_PACE_SET[s] + CH_PACE_LOSS[s]) * CH_PACE_CHAR[char]
+    return tuple((round(ref * f * 100) + CH_MEDAL_UP) / 100 for f in CH_MEDAL_FACTORS)
+
+
+def _draw_set(seed):
+    """The index of the tuning set a seed draws (the fifth number of challenge_draw)."""
+    state = seed & 0xFFFFFFFF or 1
+    for _ in range(5):
+        state ^= (state << 13) & 0xFFFFFFFF
+        state ^= state >> 17
+        state ^= (state << 5) & 0xFFFFFFFF
+    return state % CH_SET_COUNT
+
+
 def challenge_daily_seed(day):
     return ((day * CH_DAILY_MUL) & 0xFFFFFFFF) ^ CH_DAILY_XOR
 
@@ -461,7 +507,10 @@ CH_CAN = CH_DATA + 0x38        # the power can of this race was given (ch_finish
 # power-up car+270h (-1 none) becomes 7 on the first racing frame. Car::Update fires it on the
 # fire key (0x4330FA..0x433129); the car reset at the race start and restart (0x436F21) clears it.
 CAR_HELD_POWERUP, POWERUP_CAN = 0x270, 7
+CH_SET = CH_DATA + 0x3C        # the index of the drawn tuning set (ch_draw)
 CH_SAVE = CH_DATA + 0x40
+CH_MEDALS = CH_DATA + 0x80     # three floats: the gold, silver and bronze times of the draw (ch_medals)
+assert CH_SAVE + 4 * 13 <= CH_MEDALS
 CH_SWAP = (0x10, 0x1C, 0x20, 0x4C, 0x58) + tuple(0x2E4C + 4 * k for k in range(8))   # class, mode, track,
 # the 60 FPS switch, player 1's character, the eight tuning values (TUNE_VALUES)
 # The menu: page 4 ("Rennmodus") gets the button "Herausforderung" as its item 3 (the game's
@@ -473,7 +522,7 @@ MODE_ITEM_CH, MODE_Y_CH, MODE_Y_TWO = 3, 300, 350
 TXT_TWO_PLAYERS = 284
 CH_ITEM_RANDOM, CH_ITEM_DAILY, CH_ITEM_NEXT, CH_ITEM_BACK = range(4)
 CH_Y_BUTTONS = (140, 180, 480, 526)
-CH_Y_LINES = (250, 310, 400)    # track and driver, the values, the best time of the day
+CH_Y_LINES = (250, 310, 400, 440)    # track and driver, the values, the medals, the best time of the day
 (TXT_CH_MODE, TXT_CH_TITLE, TXT_CH_RANDOM, TXT_CH_DAILY, TXT_CH_DRAW, TXT_CH_BEST,
  TXT_CH_BEST_NONE) = range(150, 157)
 TXT_CH_CHAR0 = 160              # 160..166: the names of the seven characters (karts.txt order)
@@ -484,8 +533,13 @@ TXT_CH_P_DRAW = 167
 # The result overlay in a challenge: "Deine Zeit: %s", then (daily) "Bestzeit: %s" or the green
 # "Neue Bestzeit!".
 TXT_CH_R_TIME, TXT_CH_R_BEST, TXT_CH_R_NEW = 168, 169, 170
-CH_R_Y = (270, 320)
+CH_R_Y = (270, 320, 370)
 CH_R_NEW_COLOR = "<color 80 255 80 255>%s</color>"
+# Medals: the challenge page (171) and the pause page (172) show the three times; the result shows
+# the medal won (173..175, in this order) or "no medal" with the bronze time (176).
+TXT_CH_MEDALS, TXT_CH_P_MEDALS = 171, 172
+TXT_CH_R_GOLD, TXT_CH_R_NONE = 173, 176
+CH_MEDAL_COLORS = ("255 210 60 255", "200 205 215 255", "215 140 70 255")   # gold, silver, bronze
 TXT_TRACK0 = 400                # the game's track names
 START_RACE = 0x004122E0         # Menu::StartRace (this = menu), what the game's track page calls
 TIME_TEXT = 0x00411FA0          # std::string* __stdcall (std::string* out, float seconds): "mm:ss:hh"
@@ -502,6 +556,63 @@ CH_LEN_MIN, CH_LEN_MAX = 0.3, 0.7
 CH_DAILY_MUL, CH_DAILY_XOR = 0x9E3779B1, 0x5EED35
 CH_SET_COUNT = 64
 CH_GRAVITY = (50, 200)          # the gravity of a set stays in this range (percent)
+# Medals (bronze, silver, gold): a reference time for every draw, from pace tables measured in the
+# sandbox (computer karts with the learned driver at full throttle, .claude/sandbox/tools/
+# stretch_pace.py and pace_fit.py). CH_PACE_LAP: lap time per track (seconds) for set factor 1;
+# CH_PACE_SET: factor per set; CH_PACE_LOSS: the standing start per set (seconds); CH_PACE_CHAR:
+# factor per character; CH_PACE_SHAPE: per track the time of each 1/64 of the path (any unit).
+# The medals are factors on the reference.
+CH_MEDAL_FACTORS = (0.97, 1.0, 1.1)
+# A medal of n hundredths is stored as (n + 0.99) / 100: the game's time text cuts the hundredths,
+# so the medal shows n (and not n - 1 for a float a hair below), and a run wins it exactly when its
+# own time shows n or less.
+CH_MEDAL_UP = 0.99
+CH_PACE_LAP = (40.45, 39.59, 62.99, 70.26, 33.68, 53.62, 49.28, 49.08)
+CH_PACE_SET = (0.733, 0.751, 1.219, 0.754, 0.988, 0.815, 0.754, 1.685, 0.964, 1.053, 0.844, 0.903,
+    0.872, 1.143, 1.557, 1.276, 1.923, 1.048, 1.706, 1.249, 1.034, 0.995, 0.958, 1.591, 0.942,
+    0.890, 0.866, 0.949, 0.777, 1.072, 0.668, 1.128, 0.940, 1.067, 1.106, 0.683, 0.760, 1.260,
+    1.712, 0.875, 0.839, 0.887, 1.014, 1.808, 1.315, 1.005, 2.179, 0.731, 0.763, 0.922, 0.808,
+    0.703, 0.833, 0.849, 1.560, 0.824, 0.713, 1.281, 1.115, 0.975, 0.740, 0.920, 0.825, 0.684)
+CH_PACE_LOSS = (0.85, 0.42, 1.09, 0.73, 0.49, 0.41, 0.79, 1.16, 1.06, 0.34, 1.01, 2.01, 0.35, 1.33,
+    0.00, 0.17, 2.32, 0.00, 0.00, 1.10, 0.00, 0.13, 0.52, 0.41, 0.67, 0.34, 0.00, 0.98, 0.59, 2.81,
+    0.66, 0.00, 1.05, 0.00, 0.59, 0.77, 0.76, 0.00, 1.92, 1.82, 0.98, 0.08, 0.37, 0.00, 0.52, 0.02,
+    1.22, 0.74, 1.00, 1.02, 0.68, 0.45, 0.26, 0.04, 1.81, 0.11, 1.37, 0.50, 1.66, 0.13, 0.19, 1.13,
+    0.33, 0.69)
+CH_PACE_CHAR = (0.989, 0.986, 1.002, 0.996, 0.996, 1.010, 1.022)
+CH_PACE_SHAPE = (
+    (156, 183, 176, 150, 174, 153, 165, 165, 177, 183, 156, 157, 153, 147, 146, 144, 144, 117, 113,
+     126, 130, 112, 134, 146, 143, 145, 142, 109, 143, 171, 155, 154, 134, 172, 161, 165, 178, 184,
+     176, 139, 148, 122, 137, 167, 215, 188, 157, 142, 164, 202, 181, 159, 136, 146, 173, 236, 217,
+     182, 164, 157, 117, 155, 148, 111),
+    (137, 134, 146, 194, 467, 215, 154, 151, 156, 151, 191, 267, 133, 205, 199, 155, 147, 143, 153,
+     150, 161, 160, 132, 125, 135, 136, 133, 125, 119, 116, 115, 120, 125, 118, 111, 105, 105, 85,
+     119, 128, 128, 125, 131, 131, 138, 150, 159, 140, 108, 149, 192, 169, 250, 186, 153, 132, 92,
+     298, 179, 167, 164, 193, 207, 144),
+    (111, 117, 118, 140, 151, 140, 143, 133, 131, 128, 125, 124, 556, 140, 137, 138, 123, 128, 116,
+     121, 112, 128, 124, 113, 118, 129, 124, 286, 544, 153, 132, 120, 121, 122, 114, 118, 117, 147,
+     478, 176, 148, 133, 127, 114, 117, 120, 122, 134, 137, 140, 150, 132, 126, 124, 136, 146, 156,
+     155, 232, 245, 224, 141, 125, 120),
+    (197, 152, 154, 156, 165, 152, 152, 135, 122, 126, 190, 147, 468, 176, 149, 141, 151, 313, 203,
+     128, 143, 117, 163, 202, 142, 138, 132, 136, 138, 139, 138, 153, 153, 145, 137, 147, 128, 125,
+     116, 157, 123, 264, 225, 166, 175, 146, 137, 151, 155, 128, 121, 109, 126, 135, 116, 131, 132,
+     144, 207, 142, 124, 100, 157, 159),
+    (106, 110, 107, 112, 104, 106, 107, 112, 105, 110, 169, 143, 175, 203, 284, 149, 132, 122, 117,
+     177, 156, 143, 135, 124, 127, 125, 130, 122, 108, 111, 108, 108, 107, 104, 89, 97, 98, 106,
+     131, 522, 181, 200, 205, 184, 118, 120, 129, 135, 132, 126, 227, 475, 387, 333, 290, 253, 163,
+     156, 133, 120, 120, 114, 121, 78),
+    (139, 135, 164, 241, 177, 168, 392, 253, 262, 336, 263, 220, 116, 176, 175, 155, 148, 138, 138,
+     142, 143, 133, 122, 124, 114, 96, 98, 116, 107, 104, 116, 124, 125, 132, 135, 136, 132, 126,
+     164, 184, 123, 184, 189, 157, 148, 142, 132, 116, 119, 146, 132, 141, 119, 138, 133, 132, 137,
+     296, 200, 146, 126, 133, 129, 110),
+    (133, 132, 77, 111, 150, 154, 159, 156, 158, 155, 147, 144, 143, 145, 154, 160, 156, 161, 245,
+     180, 159, 147, 142, 136, 136, 130, 131, 128, 135, 154, 139, 148, 294, 248, 160, 147, 139, 143,
+     139, 145, 140, 302, 186, 172, 150, 140, 131, 141, 129, 134, 143, 131, 136, 156, 147, 142, 152,
+     151, 142, 145, 294, 201, 172, 143),
+    (175, 256, 192, 173, 157, 134, 123, 131, 109, 125, 125, 142, 150, 138, 136, 143, 88, 106, 152,
+     146, 157, 152, 166, 148, 139, 145, 172, 150, 131, 127, 145, 113, 157, 150, 234, 156, 150, 142,
+     121, 140, 144, 151, 152, 139, 135, 135, 140, 136, 240, 154, 139, 121, 147, 526, 276, 192, 173,
+     156, 139, 168, 144, 138, 142, 118),
+)
 # The best time of the day: in a highscore entry the game never reaches (50 cc, track 60).
 DAILY_ENTRY = 0x234 + 59 * 0xB4     # 2BB0h: marker, day, best time (float)
 DAILY_MAGIC = 0x43594144            # "DAYC"
@@ -702,9 +813,12 @@ OWN_Y_BACK = 526
 # The pause page (0Ah, 0Bh: without / with "Neustart") shows the class, the 60 FPS switch and, in
 # the tuning class, the preset and the values (patch 1.9). Its stock items move down for them.
 PAUSE_Y_STOCK = (180, 220, 270, 310, 390, 430, 470)   # music, value, effects, value, continue, 430, 470
-PAUSE_Y_SHIFT = 40
+# Since the medals (user, 2026-11-27) the two volumes are one white line each: the headings
+# (texts 131, 133) are empty and stand on their value lines, the values (132, 134) carry the name.
+PAUSE_Y_NEW = (262, 262, 298, 298, 370, 410, 450)
 PAUSE_Y_HEAD, PAUSE_Y_VALUES = 111, 144               # the line with class and switch, the values
-assert PAUSE_Y_STOCK[-1] + PAUSE_Y_SHIFT <= 550
+TXT_PAUSE_MUSIC = 131      # 131..134: heading and value of the music volume, then of the effects
+assert PAUSE_Y_NEW[-1] <= 550
 
 # --- addresses inside the original executable -------------------------------
 GP_GET = 0x00403790        # GameParameters* GameParameters::Instance()   (clobbers eax, ecx)
@@ -823,7 +937,7 @@ TXT_OWN_BUTTON = 267       # the tuning page's button
 TXT_OWN_SLOT = 268         # "Platz %d: %s"
 TXT_OWN_VALUES = 269       # the values of an own slot, 10 numbers (OWN_VALUES_BUF)
 OWN_VALUES_BUF = 0x180     # buffer for that text
-PAUSE_FRAME = 0x380        # the pause page's stack frame; its values text at +180h (challenge: with track and driver)
+PAUSE_FRAME = 0x400        # the pause page's stack frame; its values text at +180h (challenge: with track, driver, medals)
 TXT_OWN_EMPTY = 271
 assert TXT_TUNE_PRESET0 + 16 == TXT_OWN_TITLE and TXT_LIMIT[-1] < TXT_TUNE_PRESET16
 assert TXT_TUNE_PRESET16 + len(TUNE_PRESETS) - 16 <= TXT_TUNE_ROW8 - 4    # 229 is still free
@@ -905,6 +1019,10 @@ TEXTS = {
         "ch_p_date": "%02d.%02d.%d", "ch_p_best": "Bestzeit:", "ch_p_best_none": "noch keine Zeit",
         "ch_p_seed": "Seed %u", "ch_p_track": "Strecke:", "ch_p_from": "%d m ab %d %%", "ch_p_driver": "Fahrer:",
         "ch_r_time": "Deine Zeit: %s", "ch_r_best": "Bestzeit: %s", "ch_r_new": "Neue Bestzeit!",
+        "medals": ("Gold", "Silber", "Bronze"),
+        "volumes": ("Lautstärke Musik", "Lautstärke Effekte"),
+        "ch_r_medals": ("Goldmedaille!", "Silbermedaille!", "Bronzemedaille!"),
+        "ch_r_none": "Keine Medaille (Bronze: %s)",
         "chars": ("Moorhuhn", "Lesshuhn", "Moorfrosch", "Kürbis", "Schneemann", "Schildkröte", "Hank"),
         "new_row": "Verbesserte Gegner", "new_short": "verbessert",
         "new_info": "Wie viele der sechs Computer-Karts fahren die<br>gelernte Linie? Sie bremsen vor Kurven und"
@@ -959,6 +1077,10 @@ TEXTS = {
         "ch_p_date": "%02d/%02d/%d", "ch_p_best": "Best time:", "ch_p_best_none": "no time yet",
         "ch_p_seed": "seed %u", "ch_p_track": "Track:", "ch_p_from": "%d m from %d %%", "ch_p_driver": "Driver:",
         "ch_r_time": "Your time: %s", "ch_r_best": "Best time: %s", "ch_r_new": "New best time!",
+        "medals": ("Gold", "Silver", "Bronze"),
+        "volumes": ("Music volume", "Effects volume"),
+        "ch_r_medals": ("Gold medal!", "Silver medal!", "Bronze medal!"),
+        "ch_r_none": "No medal (bronze: %s)",
         "chars": ("Moorhuhn", "Lesshuhn", "Moorfrosch", "Pumpkin", "Snowman", "Turtle", "Hank"),
         "new_row": "Improved opponents", "new_short": "improved",
         "new_info": "How many of the six computer karts drive the<br>learned line? They brake before corners and"
@@ -1052,7 +1174,16 @@ def text_overrides(lang="de", version=None, lines_only=False):
             TXT_GROUP % t["ch_p_daily"], t["ch_p_date"], t["ch_p_best_none"])),
         (TXT_CH_R_TIME, t["ch_r_time"]), (TXT_CH_R_BEST, t["ch_r_best"]),
         (TXT_CH_R_NEW, CH_R_NEW_COLOR % t["ch_r_new"]),
-        (TXT_CH_P_RANDOM, "<scale 0.6>%s %s</scale>" % (TXT_GROUP % t["ch_p_random"], t["ch_p_seed"])),
+        (TXT_CH_MEDALS, "<scale 0.7>%s</scale>" % "   ".join(
+            "<color %s>%s</color> %%s" % (c, m) for c, m in zip(CH_MEDAL_COLORS, t["medals"]))),
+        (TXT_CH_P_MEDALS, "<scale 0.5><br>%s</scale>" % ", ".join(
+            "<color %s>%s:</color> %%s" % (c, m) for c, m in zip(CH_MEDAL_COLORS, t["medals"]))),
+    ] + [(TXT_CH_R_GOLD + k, "<color %s>%s</color>" % (c, m))
+         for k, (c, m) in enumerate(zip(CH_MEDAL_COLORS, t["ch_r_medals"]))] + [
+        (TXT_CH_R_NONE, t["ch_r_none"]),
+        (TXT_PAUSE_MUSIC, ""), (TXT_PAUSE_MUSIC + 1, t["volumes"][0] + ": %d %%"),
+        (TXT_PAUSE_MUSIC + 2, ""), (TXT_PAUSE_MUSIC + 3, t["volumes"][1] + ": %d %%"),
+        (TXT_CH_P_RANDOM,"<scale 0.6>%s %s</scale>" % (TXT_GROUP % t["ch_p_random"], t["ch_p_seed"])),
         (TXT_CH_P_DRAW, "<scale 0.5>, %s %%s, %s, %s %%s</scale>" % (
             TXT_GROUP % t["ch_p_track"], t["ch_p_from"], TXT_GROUP % t["ch_p_driver"])),
     ] + [(TXT_CH_CHAR0 + k, name) for k, name in enumerate(t["chars"])] + [
@@ -1094,7 +1225,10 @@ def text_overrides(lang="de", version=None, lines_only=False):
     assert (len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999)
             + len(longest[TXT_PAUSE_OPP[0]] % opp_widest) < OWN_VALUES_BUF)
     assert (len(longest[TXT_PAUSE_VALUES].replace("%d.%02d", "4.00") % widest[1:]) + len(longest[TXT_TOP_PAUSE[0]] % 999)
-            + len(longest[TXT_CH_P_DRAW] % ("x" * 0x1F, 9999, 100, "x" * 0x1F)) < PAUSE_FRAME - 0x180)
+            + len(longest[TXT_CH_P_DRAW] % ("x" * 0x1F, 9999, 100, "x" * 0x1F))
+            + len(longest[TXT_CH_P_MEDALS] % (("99:99:99",) * 3)) < PAUSE_FRAME - 0x180)
+    assert len(longest[TXT_CH_MEDALS] % (("99:99:99",) * 3)) < 0x200
+    assert len(longest[TXT_CH_R_NONE] % "99:99:99") < 0x100
     assert len(longest[TXT_CH_P_DAILY] % (31, 12, 30000, "99:99:99")) < 0x100
     assert (len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999)
             + len(longest[TXT_PAUSE_OPP[1]] % opp_widest) < OWN_VALUES_BUF)
@@ -4161,6 +4295,31 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.raw("DF E0", "fnstsw      ax")
         a.raw("F6 C4 %02X" % mask, "test        ah,%s" % _imm(mask))
 
+    def esp_op(hex_op, reg_field, off, text):    # op [esp+off] with an 8- or 32-bit displacement
+        if off < 0x80:
+            a.raw("%s %02X 24 %02X" % (hex_op, 0x44 | reg_field << 3, off), text % ("[esp+%s]" % _imm(off)))
+        else:
+            a.raw("%s %02X 24 %s" % (hex_op, 0x84 | reg_field << 3, _le(off)), text % ("[esp+%08Xh]" % off))
+
+    def medal_times(dst):                # the three medal times as "mm:ss:hh" into std::strings at
+        for k in range(3):               # [esp], [esp+20h], [esp+40h]; their texts to [esp+dst+4k]
+            t_mem("FF", 6, CH_MEDALS + 4 * k, "push        dword ptr %s")
+            esp_op("8D", 0, 0x20 * k + 4, "lea         eax,%s")
+            a.raw("50", "push        eax")
+            a.raw("8B CE", "mov         ecx,esi")
+            a.call(TIME_TEXT)
+            a.raw("8B C8", "mov         ecx,eax")
+            a.call(STR_CSTR)
+            esp_op("89", 0, dst + 4 * k, "mov         dword ptr %s,eax")
+
+    def medal_strings_free():
+        for k in range(3):
+            if k:
+                esp_op("8D", 1, 0x20 * k, "lea         ecx,%s")
+            else:
+                a.raw("8B CC", "mov         ecx,esp")
+            a.call(STR_DTOR)
+
     # Race start, the grid (fn 0x4061E0): eax = LevelSettings; the value goes to [esp+18h].
     a.label("ch_grid")
     a.raw("55", "push        ebp")
@@ -4448,6 +4607,40 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("81 EC 40 01 00 00", "sub         esp,140h")
     time_line(PHANTOM_RUN + 0x58, TXT_CH_R_TIME)
     result_label(CH_R_Y[0])
+    # the medal won (the texts TXT_CH_R_GOLD.. follow each other), or none with the bronze time
+    a.raw("BF " + _le(TXT_CH_R_GOLD), "mov         edi,%s" % _imm(TXT_CH_R_GOLD))
+    a.raw("D9 83 " + _le(PHANTOM_RUN + 0x58), "fld         dword ptr [ebx+%08Xh]" % (PHANTOM_RUN + 0x58))
+    for k in range(3):
+        t_mem("D8", 2, CH_MEDALS + 4 * k, "fcom        dword ptr %s")
+        fpu_flags(0x41)
+        a.jcc_short("jne", "ch_result_won")                                     # time <= medal
+        a.raw("47", "inc         edi")
+    a.raw("DD D8", "fstp        st(0)")
+    t_mem("FF", 6, CH_MEDALS + 8, "push        dword ptr %s")
+    a.raw("8D 44 24 04", "lea         eax,[esp+4]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(TIME_TEXT)
+    a.raw("8B C8", "mov         ecx,eax")
+    a.call(STR_CSTR)
+    a.raw("50", "push        eax")
+    a.raw("57", "push        edi")
+    a.raw("8D 44 24 48", "lea         eax,[esp+48h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.raw("8B CC", "mov         ecx,esp")
+    a.call(STR_DTOR)
+    a.jmp_short("ch_result_medal")
+    a.label("ch_result_won")
+    a.raw("DD D8", "fstp        st(0)")
+    a.raw("57", "push        edi")
+    a.raw("8D 44 24 44", "lea         eax,[esp+44h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 08", "add         esp,8")
+    a.label("ch_result_medal")
+    result_label(CH_R_Y[1])
     t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
     a.raw("85 C0", "test        eax,eax")
     a.jcc_near("je", "ch_result_done")                # random: no best time
@@ -4468,7 +4661,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_near("jne", "ch_result_done")
     time_line(DAILY_ENTRY + 8, TXT_CH_R_BEST)
     a.label("ch_result_line")
-    result_label(CH_R_Y[1])
+    result_label(CH_R_Y[2])
     a.label("ch_result_done")
     a.raw("81 C4 40 01 00 00", "add         esp,140h")
     a.raw("61", "popad")
@@ -4642,6 +4835,23 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.call(STR_DTOR)
     a.raw("8D 4C 24 20", "lea         ecx,[esp+20h]")
     a.call(STR_DTOR)
+    # the medals behind them (strings at +0, +20h, +40h, their texts at +170h..+178h)
+    medal_times(0x170)
+    a.raw("8B D7", "mov         edx,edi")
+    a.label("pause_ch_end2")
+    a.raw("80 3A 00", "cmp         byte ptr [edx],0")
+    a.jcc_short("je", "pause_ch_medals")
+    a.raw("42", "inc         edx")
+    a.jmp_short("pause_ch_end2")
+    a.label("pause_ch_medals")
+    a.raw("FF B4 24 78 01 00 00", "push        dword ptr [esp+00000178h]")    # bronze
+    a.raw("FF B4 24 78 01 00 00", "push        dword ptr [esp+00000178h]")    # silver
+    a.raw("FF B4 24 78 01 00 00", "push        dword ptr [esp+00000178h]")    # gold
+    a.raw("68 " + _le(TXT_CH_P_MEDALS), "push        %s" % _imm(TXT_CH_P_MEDALS))
+    a.raw("52", "push        edx")
+    a.call("tune_printf")
+    a.raw("83 C4 14", "add         esp,14h")
+    medal_strings_free()
     a.raw("68 " + _le(PAUSE_Y_VALUES), "push        %s" % _imm(PAUSE_Y_VALUES))
     a.raw("8D 84 24 84 01 00 00", "lea         eax,[esp+00000184h]")
     a.raw("50", "push        eax")
@@ -4815,6 +5025,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     ch_mod(7)
     a.raw("89 43 58", "mov         dword ptr [ebx+58h],eax")         # player 1's character
     ch_mod(CH_SET_COUNT)
+    t_mem("89", 0, CH_SET, "mov         dword ptr %s,eax")
     a.raw("C1 E0 04", "shl         eax,4")
     t_lea("ecx", "ch_sets")
     a.raw("03 C8", "add         ecx,eax")
@@ -4834,6 +5045,77 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("25 FF 00 00 00", "and         eax,0FFh")
     a.raw("0D " + _le(PHYS_MAGIC << 8), "or          eax,%s" % _imm(PHYS_MAGIC << 8))
     a.raw("89 43 %02X" % PHYS_FLAG_OFFSET, "mov         dword ptr [ebx+%s],eax" % _imm(PHYS_FLAG_OFFSET))
+    a.call("ch_medals")
+    a.raw("C3", "ret")
+
+    # st0 = p (progress, 0 <= p < 1), ecx = track: st0 = the share of the lap time up to p
+    # (ch_cum_tab, between two of its 65 points). ebp = tune_T. Clobbers eax, edx.
+    cum = tdisp("ch_cum_tab")
+    a.label("ch_cum")
+    a.raw("D9 C0", "fld         st(0)")
+    t_mem("D8", 1, "ch_n64", "fmul        dword ptr %s")
+    a.raw("D9 C0", "fld         st(0)")
+    t_mem("D8", 4, "ch_half", "fsub        dword ptr %s")
+    t_mem("DB", 3, CH_TMP, "fistp       dword ptr %s")                    # j = floor(64 p)
+    t_mem("8B", 0, CH_TMP, "mov         eax,dword ptr %s")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_short("jge", "ch_cum_lo")
+    a.raw("33 C0", "xor         eax,eax")
+    a.label("ch_cum_lo")
+    a.raw("83 F8 3F", "cmp         eax,3Fh")
+    a.jcc_short("jle", "ch_cum_hi")
+    a.raw("B8 3F 00 00 00", "mov         eax,3Fh")
+    a.label("ch_cum_hi")
+    t_mem("89", 0, CH_TMP, "mov         dword ptr %s,eax")
+    t_mem("DA", 4, CH_TMP, "fisub       dword ptr %s")                    # 64 p - j
+    a.raw("69 D1 " + _le(65 * 4), "imul        edx,ecx,%s" % _imm(65 * 4))
+    a.raw("8D 14 82", "lea         edx,[edx+eax*4]")
+    a.raw("D9 84 15 " + _le(cum + 4), "fld         dword ptr [ebp+edx+%08Xh]" % (cum + 4))
+    a.raw("D8 A4 15 " + _le(cum), "fsub        dword ptr [ebp+edx+%08Xh]" % cum)
+    a.raw("DE C9", "fmulp       st(1),st")
+    a.raw("D8 84 15 " + _le(cum), "fadd        dword ptr [ebp+edx+%08Xh]" % cum)
+    a.raw("DD D9", "fstp        st(1)")
+    a.raw("C3", "ret")
+
+    # The medal times of the draw (ebx = GameParameters, ebp = tune_T; see challenge_medals).
+    # Clobbers eax, ecx, edx.
+    a.label("ch_medals")
+    a.raw("8B 4B 20", "mov         ecx,dword ptr [ebx+20h]")
+    t_mem("D9", 0, CH_START, "fld         dword ptr %s")
+    t_mem("D8", 0, CH_LEN, "fadd        dword ptr %s")                    # the end
+    t_mem("D8", 2, "ch_one", "fcom        dword ptr %s")
+    fpu_flags(0x01)
+    a.jcc_short("jne", "ch_medals_end")                                         # end < 1
+    t_mem("D8", 4, "ch_one", "fsub        dword ptr %s")
+    a.call("ch_cum")
+    t_mem("D8", 0, "ch_one", "fadd        dword ptr %s")
+    a.jmp_short("ch_medals_start")
+    a.label("ch_medals_end")
+    a.call("ch_cum")
+    a.label("ch_medals_start")
+    t_mem("D9", 0, CH_START, "fld         dword ptr %s")
+    a.call("ch_cum")
+    a.raw("DE E9", "fsubp       st(1),st")                                   # share of the lap
+    disp = tdisp("ch_pace_lap")
+    a.raw("D8 8C 8D " + _le(disp), "fmul        dword ptr [ebp+ecx*4+%08Xh]" % disp)
+    t_mem("8B", 0, CH_SET, "mov         eax,dword ptr %s")
+    disp = tdisp("ch_pace_set")
+    a.raw("D8 8C 85 " + _le(disp), "fmul        dword ptr [ebp+eax*4+%08Xh]" % disp)
+    disp = tdisp("ch_pace_loss")
+    a.raw("D8 84 85 " + _le(disp), "fadd        dword ptr [ebp+eax*4+%08Xh]" % disp)
+    a.raw("8B 43 58", "mov         eax,dword ptr [ebx+58h]")
+    disp = tdisp("ch_pace_char")
+    a.raw("D8 8C 85 " + _le(disp), "fmul        dword ptr [ebp+eax*4+%08Xh]" % disp)
+    for k in range(3):
+        if k < 2:
+            a.raw("D9 C0", "fld         st(0)")
+        disp = tdisp("ch_medal_factors") + 4 * k
+        a.raw("D8 8D " + _le(disp), "fmul        dword ptr [ebp+%08Xh]" % disp)
+        t_mem("D8", 1, "ch_hundred", "fmul        dword ptr %s")
+        a.raw("D9 FC", "frndint")
+        t_mem("D8", 0, "ch_medal_up", "fadd        dword ptr %s")
+        t_mem("D8", 1, "hundredth", "fmul        dword ptr %s")
+        t_mem("D9", 3, CH_MEDALS + 4 * k, "fstp        dword ptr %s")
     a.raw("C3", "ret")
 
     # eax = today, in days since 1601 (UTC). ebp = tune_T. Clobbers ecx, edx.
@@ -4982,6 +5264,18 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("B8 " + _le(TXT_TOP_PAUSE[0]), "mov         eax,%s" % _imm(TXT_TOP_PAUSE[0]))
     a.call("top_text")
     ch_label(CH_Y_LINES[1], CH_BUF)
+    # the medals: three times into the strings at +0, +20h, +40h, their texts at +70h..+78h
+    medal_times(0x70)
+    a.raw("FF 74 24 78", "push        dword ptr [esp+78h]")           # bronze
+    a.raw("FF 74 24 78", "push        dword ptr [esp+78h]")           # silver
+    a.raw("FF 74 24 78", "push        dword ptr [esp+78h]")           # gold
+    a.raw("68 " + _le(TXT_CH_MEDALS), "push        %s" % _imm(TXT_CH_MEDALS))
+    a.raw("8D 84 24 " + _le(CH_BUF + 0x10), "lea         eax,[esp+%08Xh]" % (CH_BUF + 0x10))
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 14", "add         esp,14h")
+    ch_label(CH_Y_LINES[2], CH_BUF)
+    medal_strings_free()
     # the daily challenge: the best time of the day
     t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
     a.raw("85 C0", "test        eax,eax")
@@ -5013,7 +5307,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.call("tune_printf")
     a.raw("83 C4 08", "add         esp,8")
     a.label("ch_build_best")
-    ch_label(CH_Y_LINES[2], CH_BUF)
+    ch_label(CH_Y_LINES[3], CH_BUF)
     a.label("ch_build_lines_done")
     a.raw("81 C4 " + _le(CH_FRAME), "add         esp,%s" % _imm(CH_FRAME))
     a.label("ch_build_title")
@@ -6259,6 +6553,23 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.label("ch_sets")
     a.data(b"".join(struct.pack("<8H", *vals) for vals in challenge_sets()),
            "the %d sets of tuning values of the challenges, 8 words each" % CH_SET_COUNT)
+    a.label("ch_n64")
+    a.data(struct.pack("<f", 64.0), "float 64")
+    a.label("ch_medal_up")
+    a.data(struct.pack("<f", CH_MEDAL_UP), "float %g: a medal of n hundredths is n.99, see CH_MEDAL_UP" % CH_MEDAL_UP)
+    a.label("ch_medal_factors")
+    a.data(struct.pack("<3f", *CH_MEDAL_FACTORS), "float %g, %g, %g: gold, silver, bronze on the reference time" % CH_MEDAL_FACTORS)
+    a.label("ch_pace_lap")
+    a.data(struct.pack("<8f", *CH_PACE_LAP), "float: medals, lap time per track")
+    a.label("ch_pace_set")
+    a.data(struct.pack("<%df" % CH_SET_COUNT, *CH_PACE_SET), "float: medals, factor per tuning set")
+    a.label("ch_pace_loss")
+    a.data(struct.pack("<%df" % CH_SET_COUNT, *CH_PACE_LOSS), "float: medals, standing start per tuning set")
+    a.label("ch_pace_char")
+    a.data(struct.pack("<7f", *CH_PACE_CHAR), "float: medals, factor per character")
+    a.label("ch_cum_tab")
+    a.data(b"".join(struct.pack("<65f", *cum) for cum in challenge_pace_cum()),
+           "float: medals, share of the lap time up to each 1/64 of the path, 65 per track")
     a.label("top_chars")
     a.data(b"".join(struct.pack("<2f", m, TOP_K * gd) for m, gd in TOP_CHARS),
            "top speed: mass and rpm per unit/s in top gear of the seven characters")
@@ -6433,11 +6744,12 @@ def site_patches(labels):
         jump(va, orig, "ch_ghost%d" % k, "challenge: no phantom of the track (daily: the phantom of the day)")
     for k, va in enumerate(CH_SAVE_HOOKS):
         jump(va, CH_SAVE_ORIG, "ch_save%d" % k, "challenge: settings.dat gets the player's own settings")
-    for row, y in enumerate(PAUSE_Y_STOCK[:5]):
+    for row, (y, new) in enumerate(zip(PAUSE_Y_STOCK[:5], PAUSE_Y_NEW)):
         slot = "C7 44 24 %02X " % (0x30 + 4 * row)
-        data(0x00413E92 + 8 * row, slot + _le(y), slot + _le(y + PAUSE_Y_SHIFT), "pause page: item %d moves down" % row)
-    for va, y in ((0x00413FE1, PAUSE_Y_STOCK[5]), (0x0041405B, PAUSE_Y_STOCK[5]), (0x004140D2, PAUSE_Y_STOCK[6])):
-        data(va, "68 " + _le(y), "68 " + _le(y + PAUSE_Y_SHIFT), "pause page: button at %d moves down" % y)
+        data(0x00413E92 + 8 * row, slot + _le(y), slot + _le(new), "pause page: item %d moves" % row)
+    for va, y, new in ((0x00413FE1, PAUSE_Y_STOCK[5], PAUSE_Y_NEW[5]), (0x0041405B, PAUSE_Y_STOCK[5], PAUSE_Y_NEW[5]),
+                       (0x004140D2, PAUSE_Y_STOCK[6], PAUSE_Y_NEW[6])):
+        data(va, "68 " + _le(y), "68 " + _le(new), "pause page: button at %d moves" % y)
 
     # phantom karts
     # The stock game compares the id in a phantom file with its own and skips the file

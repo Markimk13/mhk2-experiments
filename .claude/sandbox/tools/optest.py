@@ -69,7 +69,7 @@ def start(exe):
 def read_str(h, a):
     size, cap = struct.unpack("<II", H.read(h, a + 0x14, 8))
     buf = a + 4 if cap < 16 else H.u32(h, a + 4)
-    return H.read(h, buf, min(size, 400)).decode("cp1252", "replace")
+    return H.read(h, buf, min(size, 1024)).decode("cp1252", "replace")
 
 
 def info():

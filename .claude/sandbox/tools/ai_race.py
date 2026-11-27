@@ -28,6 +28,8 @@ per class, --geo k=v,... sets its values for every kart, --geo-kart N:k=v,... fo
 --cans gives every computer kart a power can ("Powerdose", car+270h = 7) whenever it holds no
 power-up and none is active; the computer karts fire it themselves (as in a race with item
 boxes). Prints how many cans they fired. For the challenges, which give the player one can.
+--char N sets the player's character (0 moorhuhn .. 6 hank); the computer karts get the others.
+The line "characters: ..." gives every kart's character (car+330h), the player's first.
 --watch off switches the watch off (geo_watch in geo_driver.asm: a kart without progress for WT
 seconds goes back to the road), --watch WT[,WA] sets its times and switches it on in every class.
 One row per kart per game frame; the last columns are the kart number, laps + progress
@@ -82,6 +84,7 @@ def main():
     ap.add_argument("--geo-kart", action="append", default=[])
     ap.add_argument("--watch", default=None)
     ap.add_argument("--cans", action="store_true")
+    ap.add_argument("--char", type=int, default=None)
     a = ap.parse_args()
     exe = os.path.abspath(a.exe)
     log = os.path.join(os.path.dirname(exe), "log.txt")
@@ -140,6 +143,8 @@ def main():
         on = [int(x) for x in a.geo_on.split(",")] if a.geo_on is not None else None
         G.apply(r.write, lambda ad, n: H.read(r.h, ad, n), exe, on, G.parse(a.geo), per)
         print("geometric driver: on %s, all %s, karts %s" % (on, a.geo or "-", per or "-"), flush=True)
+    if a.char is not None:                             # the player's character (the computer karts get the others)
+        r.gp_i32(0x58, a.char)
     r.gp_i32(0x1C, a.mode)
     r.gp_i32(0x10, a.cls)
     # the track of the time trial menu: in a championship (mode 1) the race does not use it, so it
@@ -193,7 +198,8 @@ def main():
     mass = [f32(h, c + 0x60) for c in cars]
     knum = [H.u32(h, c + 0x304) for c in cars]
     ctls = [H.u32(h, c + 0x1F4) for c in cars]
-    par = H.u32(h, phys[0] + 4)                        # the vehicle's parameter object
+    print("characters: %s" % " ".join(str(H.u32(h, c + 0x330)) for c in cars), flush=True)
+    par =H.u32(h, phys[0] + 4)                        # the vehicle's parameter object
     print("kart 0: mass %.2f | drag: factor %.3f, coefficient %.3f | downforce: factor %.3f, coefficient %.3f" % (
         mass[0], f32(h, phys[0] + 0x260), f32(h, par + 0x1DC), f32(h, phys[0] + 0x264), f32(h, par + 0x1E0)), flush=True)
     # the track's ground materials (objects.txt, block Track): singleton [0x5E8500], records of 7Ch

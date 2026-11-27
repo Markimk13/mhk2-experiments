@@ -17,13 +17,20 @@ versions stay.
   your driver. The result shows your time and, in a daily challenge, your best time of the day,
   also at the top right during the race. No highscore list follows the result.
 - Challenges: every challenge race gives you one power can. Choose the best place to fire it.
+- Challenges: every challenge has a gold, silver and bronze time. The result shows the medal
+  that you won. → [Challenges](docs/challenges.md#medals)
+
+### Changed
+
+- Pause page: *Lautstärke Musik* (music volume) and *Lautstärke Effekte* (effects volume) are
+  one line each, with the value behind the name. This makes room for the lines of the challenge.
 
 ### For developers
 
-- New menu page 22h, texts 105 and 150 to 170, and the best time of the day in an unused
+- New menu page 22h, texts 105 and 150 to 176, and the best time of the day in an unused
   highscore entry (offset 0x2BAC, marker `DAYC`). Details:
   [How it works](docs/how-it-works.md#challenges).
-- The patch section `.mod200` has 28 KB now (24 KB before).
+- The patch section `.mod200` has 32 KB now (24 KB before).
 
 ## 1.10
 

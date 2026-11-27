@@ -70,7 +70,7 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Menu.** The page *Rennmodus* (menu page 4) is built by the game from a table. After that, the
   patch turns its item 3, the label *Zwei Spieler*, into the button *Herausforderung* and adds
   the label again behind the items. So the item numbers of the game's buttons stay the same. The
-  button opens the new menu page 22h. Its texts are 150 to 170 in `text-20.csv`.
+  button opens the new menu page 22h. Its texts are 150 to 176 in `text-20.csv`.
 - **The draw.** A seed starts an xorshift32 generator: `x ^= x << 13; x ^= x >> 17;
   x ^= x << 5`. Five numbers follow, in this order: the track (% 8), the start (% 1000, per
   mille of the track's path), the length (1000 + % 601 metres, as a share of the path, kept in
@@ -123,6 +123,21 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   daily run is copied to that file. The race start takes the phantom's character from the
   header of the track's phantom file (0x4099B1). In a challenge, it takes player 1's character
   instead: the daily draw always gives the same driver.
+- **Medals.** The draw also computes the three medal times and keeps them at 0x885180. The
+  reference time is ((C_t(start + share) − C_t(start)) × LAP[t] × SET[s] + LOSS[s]) × CHAR[c].
+  C_t is the cumulative share of the lap time at 65 points of the path (`CH_PACE_SHAPE`), linear
+  between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.97, 1.0 and
+  1.1, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
+  cuts the hundredths: a float a hair below n would show n − 1. A run wins a medal exactly when
+  its own time shows n or less. `challenge_medals()` in the patcher does the same in Python. The
+  result compares the run's time with each medal (time ≤ medal wins) and shows text 173 to 175,
+  or text 176 with the bronze time.
+- **Medal tables.** The tables come from races of computer karts: class 5 with the set's values,
+  *Tempo* 100 %, 6 improved karts, the 60 FPS switch, each kart's path progress per 1/64 lap. A
+  set's lap time on a track is the sum of the 30 % quantile of every 1/64 over all karts and
+  laps. log L = log LAP[t] + log SET[s], fitted by least squares; the geometric mean of SET is 1.
+  LOSS is the cleanest start of each run: the time at 8/64 behind the grid minus the flying time
+  over the same part.
 
 ## 60 FPS physics switch
 
@@ -150,6 +165,10 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 
 `text-20.csv` uses the game's own override mechanism: the game merges `text-NN.csv` over
 `text.csv`.
+
+The pause page shows the volumes as one line each (1.11): the headings (texts 131 and 133) are
+empty, and the value texts 132 and 134 carry the names, as in *Lautstärke Musik: 50 %*. The patch
+moves the pause items to the new rows (the y values at 0x413E92 and the three buttons).
 
 ## Save file
 

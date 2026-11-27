@@ -18,8 +18,8 @@ Short answers about the patch. The pages of the features have more.
 - **Language.** The new menu texts are German. The English zip has them in English. The game's
   own texts (*Weiter*, *Zurück*, the menu titles) stay German in both zips.
 - **Menu layout.** The rows of the options menu are higher and closer together than in the
-  original game, to make room for the two switches. The items of the pause page are lower, to
-  make room for the line with the class and the values.
+  original game, to make room for the two switches. On the pause page, each volume is one line,
+  and the items are lower. This makes room for the lines with the class and the values.
 
 ## Not tested
 

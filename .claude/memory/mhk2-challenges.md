@@ -212,7 +212,7 @@ and (only *Täglich*) the best time of the day; *Weiter* races against the best-
   `ch_hudbest` puts the day's best there (daily, marker and day match). Hud+10h / +14h are the
   other two times. Flow tests: daily 36, random 28 checks.
 
-## Plan: a power can in every challenge (user, 2026-11-27; not started, waits for the #32 session)
+## A power can in every challenge (user, 2026-11-27; built, see below)
 
 The user wants it simple: every challenge gives one *Powerdose* (power can), no rule draw.
 Traced so far (read only):
@@ -239,7 +239,7 @@ Steps:
 5. Tests: `challenge_flow.py` checks car+270h = 7 after the start and fires it (find a test
    input for the fire key, or call 0x42D320 remotely), then car+274h = 7 and car+270h = -1.
 
-## Plan: medals (bronze, silver, gold; not started)
+## Medals (bronze, silver, gold; plan below, built 2026-11-27, see the end)
 
 Goal: a target time for every draw, also for random seeds (2^32 of them, so nothing can be
 measured per seed). The patcher ships pace tables measured in the sandbox; the game adds up the
@@ -284,3 +284,48 @@ stretch from them at the draw.
 - HUD: the icon top left shows the can while held (picture `runs\challenge\flow6_random\4_race.png`).
   Flow tests: daily 39, random 31, tuned 39 checks (the test fires the can in both runs: it does
   not steer, and a draw in a bend finished only with the can).
+
+## Medals as built (2026-11-27, sixth commit)
+
+- **Model** (`challenge_medals()` in the patcher, asm `ch_medals`, called at the end of
+  `ch_draw`): ref = ((C_t(start+share) - C_t(start)) x CH_PACE_LAP[t] x CH_PACE_SET[s] +
+  CH_PACE_LOSS[s]) x CH_PACE_CHAR[c]; C_t = cumulative share of CH_PACE_SHAPE[t] at 65 points
+  (`ch_cum` builds float32 tables at build time), linear between, C(e-1)+1 behind the wrap. Medals
+  = round(ref x (0.97, 1.0, 1.1) x 100) / 100 into CH_MEDALS = CH_DATA+80h (3 floats). CH_SET =
+  CH_DATA+3Ch holds the drawn set (`_draw_set()` = the fifth xorshift number % 64).
+  `CH_MEDAL_FACTORS` are provisional: not calibrated against players yet (the user's two Insel
+  recordings gave user / computer ratios 0.70 and 0.94, crashes and power-ups in both).
+- **Display**: page 22h, a line at CH_Y_LINES[2] (text 171, the best line moved to [3]); the
+  pause page, a fourth line (text 172) behind track and driver; the result (texts 173..175 for
+  gold..bronze, 176 "Keine Medaille (Bronze: %s)"), compared with fcom: time <= medal wins.
+  Colours CH_MEDAL_COLORS (gold, silver grey, bronze).
+- **Pause page compacted for room**: texts 131/133 (volume headings) empty, 132/134 carry the name
+  ("Lautstärke Musik: %d %%"); PAUSE_Y_NEW moves all seven items (data patches at 0x413E92 +
+  8 x row, buttons at 0x413FE1, 0x41405B, 0x4140D2). Empty texts are fine: the game shows
+  nothing, no fallback. `classtest.py pause` expects the new stock list.
+- **Measurement** (`stretch_pace.py` -> `pace_sNN_tN.json` in `runs\medals\pace`):
+  `ai_race.py` championship race, class 5 with the set's values, `--tempo 100 --improved 6
+  --physics60 --char (s+t)%7`, `--seconds auto` = max(75, path/2222 x 100). Per kart the
+  crossings of each 1/64 of progress (car+224h unwrapped). `pace_table.py`: the q30 quantile per
+  segment over all karts and laps, 8 segments after the grid skipped; loss = time at the 8th
+  crossing - flying time from p0 (the race clock starts at "go"), the minimum over the karts.
+  Several crossings in one frame (a reset jump) give no segment time.
+  `pace_fit.py <dir> --check`: alternating least squares on log lap = log T[t] + log F[s];
+  partial runs (slow sets that cover no full lap) estimated from their segments against the
+  track's mean shape; shape per track = mean of the runs' shares; loss per set = median;
+  character = geometric mean of the karts' median ratio to the table. Prints the CH_PACE_ lines.
+- **Runs**: tracks 0 and 4 with all 64 sets, tracks 1-3 and 5-7 with sets 0..7 (plus whatever the
+  first pilots covered), about 160 runs on three game folders (about 4 min per run).
+- **Results** (157 runs, `runs\medalsit.txt`): leave-one-out over tracks 1-3, 5-7 (45 runs):
+  lap error mean +0.4 %, abs median 3.5 %, max 29 %; random stretches abs median 4.5 %, 90 % below
+  16 %. Worst: set 2 (Lenkung 50 %, Schwerkraft 200 %, Anpressdruck 775 %: karts stuck, +-30 %)
+  and set 4 on track 2. Set factors 0.67..2.18; lap times 33.7 s (Insel) .. 70.3 s; standing loss
+  0..2.8 s; characters 0.986..1.022. Partial runs need 32 of 64 segments
+  (set 7 on track 7 covered 16 with stuck karts and gave a 436 s lap that spoiled track 7).
+  Shapes have spikes (up to 5x a segment) where the computer karts crash or slow in a bend.
+- **Display rounding**: a medal of n hundredths is stored as (n + 0.99) / 100 (`CH_MEDAL_UP`);
+  TIME_TEXT cuts hundredths, so 23.94 as float32 (23.93999) showed 23:93 before.
+- **Flow test stretch**: 0.006 of the path (was 0.02): the test does not steer and a bend 22 m
+  after the start of two random draws ended in a wall.
+- **Not done**: step 4 (the computer kart driving real challenges from their start), step 5 (what
+  the can saves; gold does not need the can yet), a medal kept with the daily best, an icon.

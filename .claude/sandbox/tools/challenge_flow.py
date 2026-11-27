@@ -12,7 +12,7 @@ Steps (pictures in <out dir>):
 1. Page 4 ("Rennmodus"): item 3 must be the button "Herausforderung".
 2. "Herausforderung" -> page 22h. "Täglich" (--random: "Zufall") -> the draw: compares GameParameters
    and the challenge block with the patcher's challenge_draw() for the seed.
-3. "Weiter" -> the race. The stretch is shortened to 0.02 of the path, so full throttle finishes.
+3. "Weiter" -> the race. The stretch is shortened to 0.006 of the path (8 to 20 m), so full throttle finishes before a bend.
    Checks: settings.dat written at the race start holds the player's own settings.
 4. After the finish: the result overlay's "Weiter" leads to the result list (no name entry); daily:
    data\\Phantom\\daily-<day>.mhk2 and the best time in GameParameters.
@@ -87,6 +87,21 @@ def show(g, title):
         print("   %2d type %d y %4d  %s" % (n, typ, y, text[:110]))
 
 
+def time_text(t):
+    """A time the way the game's TIME_TEXT writes it (hundredths cut, as the run times show)."""
+    return "%02d:%02d:%02d" % (int(t) // 60, int(t) % 60, int(t * 100) % 100)
+
+
+def medals_check(g, seed, where):
+    """The medal times of the draw against challenge_medals(); returns them."""
+    got = struct.unpack("<3f", g.read(P.CH_MEDALS, 12))
+    want = P.challenge_medals(seed)
+    check("%s: the medal times match challenge_medals() and rise gold < silver < bronze" % where,
+          all(abs(a - b) < 1e-4 for a, b in zip(got, want)) and got[0] < got[1] < got[2],
+          "game %s, python %s" % (["%.2f" % x for x in got], ["%.2f" % x for x in want]))
+    return got
+
+
 def overlay_texts(g):
     st = g.u32(g.u32(0x5E851C) + 4)
     return [t for _, t in PL.items(g, g.u32(st + 0x144))]
@@ -126,6 +141,10 @@ def pause_check(g, out, daily, drawn, start, length):
               "Zufällige Herausforderung:" in head and "Seed %u" % seed in head
               and (drawn["track"], drawn["char"], drawn["values"]) == (track, char, values), repr(head))
     check("pause: no class, no preset", not any("Klasse" in t or "Vorlage" in t for t in texts))
+    medals = struct.unpack("<3f", g.read(P.CH_MEDALS, 12))
+    vals = next((t for t in texts if "Gold:" in t), "")
+    check("pause: the three medal times", all(n + ":</color> " + time_text(m) in vals
+                                              for n, m in zip(("Gold", "Silber", "Bronze"), medals)), repr(vals))
     metres = round(length * P.CH_PATHS[drawn["track"]])
     line = next((t for t in texts if "Strecke:" in t), "")
     check("pause: the values, the top speed, track, metres, start and driver in one label",
@@ -216,6 +235,10 @@ def run(g, out, daily):
         check("a random draw is a valid set", drawn["values"] in P.challenge_sets() and 0.3 <= length <= 0.7 + 1e-6)
     lines = [s for t, _, s in C.items(g) if t == 0]
     check("the page shows the draw", any("Strecke" in s for s in lines) and any("Fahrer" in s for s in lines))
+    medals = medals_check(g, seed0 if daily else g.u32(P.CH_SEED0), "draw")
+    mline = next((s for s in lines if "Gold" in s and "Silber" in s and "Bronze" in s), "")   # without colour tags
+    check("the page shows the medal times", all(n + " " + time_text(m) in mline
+                                                for n, m in zip(("Gold", "Silber", "Bronze"), medals)), repr(mline))
     if daily:
         check("the page shows 'no time yet today'", any("noch keine Zeit" in s for s in lines))
     # 3. the race
@@ -231,7 +254,7 @@ def run(g, out, daily):
           "file %s" % saved)
     check("GameParameters hold the challenge in the race", settings_of(g) == drawn,
           "race %s, draw %s" % (settings_of(g), drawn))
-    g.write(P.CH_LEN, struct.pack("<f", 0.02))
+    g.write(P.CH_LEN, struct.pack("<f", 0.006))     # 8..20 m: the test does not steer, a bend may follow
     cm = g.u32(0x5E8520)
     t0 = time.time()
     while f32(g, cm + 0x20) <= 0.0 and time.time() - t0 < 60:
@@ -267,6 +290,8 @@ def run(g, out, daily):
     mmss = "Deine Zeit: %02d:%02d:" % (int(run_time) // 60, int(run_time) % 60)
     check("result overlay: 'Deine Zeit' with the run's time, no lap lines, no 'Gesamt'", any(mmss in t for t in texts)
           and not any("Runde" in t or "Gesamt" in t for t in texts), "%r, run %.2f s" % (texts, run_time))
+    check("result overlay: 'Goldmedaille!' (the shortened stretch is far below gold)",
+          any(t.endswith("Goldmedaille!</color>") for t in texts), repr(texts))
     if daily:        # the first run of the day
         check("result overlay: 'Neue Bestzeit!' in green", any(t == P.CH_R_NEW_COLOR % "Neue Bestzeit!" for t in texts),
               repr(texts))
@@ -290,7 +315,9 @@ def run(g, out, daily):
               "%08X %d %.2f (run %.2f)" % (mark, dday, best, run_time))
     else:
         check("a random challenge saves no phantom", not any(f.startswith("daily-") for f in os.listdir(T.PH)))
-    # 4b. "Rennen wiederholen": the same stretch from its start again
+    # 4b. "Rennen wiederholen": the same stretch from its start again; with medal times below any
+    # run, the result says "no medal" and gives the bronze time
+    g.write(P.CH_MEDALS, struct.pack("<3f", 0.1, 0.2, 0.3))
     n_restart = g.init_count()
     g.select(0)
     time.sleep(4.0)
@@ -315,11 +342,12 @@ def run(g, out, daily):
     check("the repeated stretch is finished", ok)
     if not ok:
         return
+    time.sleep(1.0)
+    texts = overlay_texts(g)
+    print("-- result overlay, second run:", texts)
+    g.shot(os.path.join(out, "4c_result_again.png"))
+    check("result overlay: 'Keine Medaille' with the bronze time", "Keine Medaille (Bronze: 00:00:30)" in texts, repr(texts))
     if daily:
-        time.sleep(1.0)
-        texts = overlay_texts(g)
-        print("-- result overlay, second run:", texts)
-        g.shot(os.path.join(out, "4c_result_again.png"))
         run2 = f32(g, g.gp + P.PHANTOM_RUN + 0x58)
         best = f32(g, g.gp + P.DAILY_ENTRY + 8)
         if run2 < run_time:

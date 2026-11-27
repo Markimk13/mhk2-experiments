@@ -1671,8 +1671,9 @@ def scenario_pause():
     note("== pause: the pause page shows the class, the 60 FPS switch, the tuning values and, with opponents, 'Gegner'")
     import pause_look as PL
     orange = "<color 255 170 0 255>%s</color>"
-    stock = ["<font 30px_redoutline>Lautst\xe4rke Musik</font>", "0 %", "<font 30px_redoutline>Lautst\xe4rke Effekte</font>",
-             "0 %", "Rennen fortsetzen", "Neustart", "Rennen beenden", "<font 30px_redoutline>Pause</font>"]
+    # the volumes are one line each since the medals (their headings are empty)
+    stock = ["", "Lautst\xe4rke Musik: 0 %", "", "Lautst\xe4rke Effekte: 0 %",
+             "Rennen fortsetzen", "Neustart", "Rennen beenden", "<font 30px_redoutline>Pause</font>"]
 
     def head(*pairs):
         return "<scale 0.6>%s</scale>" % ", ".join("%s %s" % (orange % (k + ":"), v) for k, v in pairs)
