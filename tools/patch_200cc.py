@@ -531,6 +531,11 @@ TXT_CH_LEFT = 105               # "Noch %d m" in place of "Runde %d/3" (text 100
 # lines instead (TXT_CH_R_*).
 CH_RESULT_HOOK, CH_RESULT_BACK, CH_RESULT_END = 0x00422643, 0x0042264A, 0x004233B5
 CH_RESULT_ORIG = "53 53 E8 A6 F1 FD FF"
+# The result list (page 0Fh): its three buttons, then the highscore table from 0x42351F on, the
+# title "Highscore" and the end at 0x424658. A challenge skips the table.
+CH_LIST_HOOK, CH_LIST_ORIG, CH_LIST_BACK, CH_LIST_END = 0x0042351F, "53 8D 84 24 60 08 00 00", 0x00423527, 0x00424658
+# Hud::Draw, the best time top right: the best lap [Hud + player * 4 + 18h], read at 0x41965C.
+CH_HUDBEST_HOOK, CH_HUDBEST_ORIG, CH_HUDBEST_BACK = 0x0041965C, "8B 4C 86 18 51", 0x00419661
 # The phantom's driver at race start: [GameParameters + slot * 6Ch + 0A9ECh], the character in the
 # header of the class's and track's phantom file (0x4099B1). A challenge's phantom always has the
 # challenge's driver (the daily draw fixes it), so in a challenge it is player 1's character.
@@ -4372,6 +4377,56 @@ def build_payload(base, factors, pulls, known=None, version=None):
         a.call(ADD_LABEL)
 
     a.label("ch_result_ch")
+    a.call("ch_result_lines")
+    a.jmp(CH_RESULT_END)
+
+    # The result list (page 0Fh, after the game added its three buttons; ebx = 0): in a
+    # challenge no highscore table, but the result lines again and the challenge's title. Then
+    # the page's end (0x424658: "Rennen wiederholen" selected, ebp = -1).
+    a.label("ch_list")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.jcc_short("jne", "ch_list_ch")
+    a.raw("5D", "pop         ebp")
+    a.raw("53", "push        ebx")                                               # displaced
+    a.raw("8D 84 24 60 08 00 00", "lea         eax,[esp+00000860h]")
+    a.jmp(CH_LIST_BACK)
+    a.label("ch_list_ch")
+    a.call("ch_result_lines")
+    a.raw("B8 " + _le(TXT_CH_TITLE), "mov         eax,%s" % _imm(TXT_CH_TITLE))
+    a.call("tune_title")
+    a.raw("5D", "pop         ebp")
+    a.raw("83 CD FF", "or          ebp,0FFFFFFFFh")
+    a.jmp(CH_LIST_END)
+
+    # The HUD's best time (top right; in place of "mov ecx,[esi+eax*4+18h] / push ecx", the
+    # best lap of player eax): in a daily challenge the best time of the day, once there is one.
+    a.label("ch_hudbest")
+    a.raw("8B 4C 86 18", "mov         ecx,dword ptr [esi+eax*4+18h]")              # displaced
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_mem("8B", 2, CH_DAY, "mov         edx,dword ptr %s")
+    a.raw("85 D2", "test        edx,edx")
+    a.jcc_short("je", "ch_hudbest_done")
+    t_active()
+    a.jcc_short("je", "ch_hudbest_done")
+    disp = tdisp(GP_POINTER)
+    a.raw("8B AD " + _le(disp), "mov         ebp,dword ptr [ebp+%08Xh]" % disp)
+    a.raw("81 BD %s %s" % (_le(DAILY_ENTRY), _le(DAILY_MAGIC)),
+          "cmp         dword ptr [ebp+%08Xh],%s" % (DAILY_ENTRY, _imm(DAILY_MAGIC)))
+    a.jcc_short("jne", "ch_hudbest_done")
+    a.raw("3B 95 " + _le(DAILY_ENTRY + 4), "cmp         edx,dword ptr [ebp+%08Xh]" % (DAILY_ENTRY + 4))
+    a.jcc_short("jne", "ch_hudbest_done")
+    a.raw("8B 8D " + _le(DAILY_ENTRY + 8), "mov         ecx,dword ptr [ebp+%08Xh]" % (DAILY_ENTRY + 8))
+    a.label("ch_hudbest_done")
+    a.raw("5D", "pop         ebp")
+    a.raw("51", "push        ecx")                                               # displaced
+    a.jmp(CH_HUDBEST_BACK)
+
+    # The lines "Deine Zeit" and, in a daily challenge, the best time of the day or "Neue
+    # Bestzeit!" (esi = menu). Keeps all registers.
+    a.label("ch_result_lines")
     a.raw("60", "pushad")
     a.call("tune_base")
     t_mov("ebx", GP_POINTER)
@@ -4402,7 +4457,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.label("ch_result_done")
     a.raw("81 C4 40 01 00 00", "add         esp,140h")
     a.raw("61", "popad")
-    a.jmp(CH_RESULT_END)
+    a.raw("C3", "ret")
 
     # eax = a day (days since 1601-01-01): eax = day of the month, ecx = month, edx = year
     # (H. Hinnant's civil_from_days; Python mirror challenge_date).
@@ -6353,7 +6408,9 @@ def site_patches(labels):
     jump(CH_LAPID_HOOK, "6A 64 52 89 78 34", "ch_lapid", "challenge: metres left instead of the lap (text)")
     jump(CH_LAPNUM_HOOK, "8B 54 8E 20 42", "ch_lapnum", "challenge: metres left instead of the lap (number)")
     call(CH_GHOSTCHAR_HOOK, CH_GHOSTCHAR_ORIG, "ch_ghostchar", "challenge: the phantom drives the challenge's character")
-    jump(CH_RESULT_HOOK, CH_RESULT_ORIG, "ch_result", "challenge: the result overlay shows the total, no laps")
+    jump(CH_RESULT_HOOK, CH_RESULT_ORIG, "ch_result", "challenge: the result overlay shows the time and the best of the day")
+    jump(CH_LIST_HOOK, CH_LIST_ORIG, "ch_list", "challenge: the result list without the highscore table")
+    jump(CH_HUDBEST_HOOK, CH_HUDBEST_ORIG, "ch_hudbest", "challenge: the HUD's best time is the best of the day")
     jump(CH_MAP_HOOK, "C7 44 01 F4 C0 C0 C0 FF", "ch_mapcol", "challenge: the stretch in colour on the minimap")
     for va in TOP_FIVE_CALLS:
         retarget(va, TOP_FIVE, "ch_top5", "challenge: no highscore entry")

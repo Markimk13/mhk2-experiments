@@ -14,7 +14,8 @@ versions stay.
   shows your best time of the day, and your best run of the day races with you as the phantom.
 - Challenges: the race shows the metres to the finish, and the minimap shows the stretch in
   colour. The pause page shows the challenge: the date or the seed, the values, the track and
-  your driver. The result shows your time and, in a daily challenge, your best time of the day.
+  your driver. The result shows your time and, in a daily challenge, your best time of the day,
+  also at the top right during the race. No highscore list follows the result.
 
 ### For developers
 

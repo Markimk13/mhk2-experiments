@@ -203,3 +203,11 @@ and (only *Täglich*) the best time of the day; *Weiter* races against the best-
   first line only). `ch_result` builds them and jumps to 0x4233B5, where all stock line blocks
   end. `ch_promote` sets CH_NEWBEST (CH_DATA+34h) when it copied a faster daily run (0 else), so
   a tie shows "Bestzeit".
+- **Result list and HUD (user, 2026-11-27, sixth commit):** page 0Fh builds its buttons
+  (0x413C00, items 0..2, y 440 / 490 / 550), a line (0x413980), then the table (string array
+  0x560470 / 0x560410, rows 0x4207D0, labels 0x413B10) and the title "Highscore" (0x413CE0),
+  ending at 0x424658 (selection = ebx, [menu+144h] = ebp = -1). `ch_list` (0x42351F) skips from
+  the buttons to that end and adds `ch_result_lines` and the title *Herausforderung*. HUD best
+  time: Hud::Draw formats [Hud + player*4 + 18h] (best lap) with 0x418090 at 0x41965C;
+  `ch_hudbest` puts the day's best there (daily, marker and day match). Hud+10h / +14h are the
+  other two times. Flow tests: daily 36, random 28 checks.

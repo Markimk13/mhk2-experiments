@@ -36,6 +36,8 @@ track, driver and tuning values are back when you leave.
   1000 to 1600 m long, which is 30 % to 70 % of the track. At 200 to 250 km/h, it takes 15 to
   30 seconds.
 - **Metres to go.** The top left shows *Noch 340 m* (340 m to go) instead of the lap.
+- **Best time.** In a daily challenge, *Bestzeit* (best time) at the top right shows your best
+  time of the day.
 - **The minimap.** It shows the stretch in magenta and the finish in white. The rest of the
   track is grey.
 - **The pause page.** It shows the challenge: *Tägliche Herausforderung* (daily challenge) with
@@ -47,7 +49,8 @@ track, driver and tuning values are back when you leave.
   ([Tuning class](tuning-class.md)). The switch *60-FPS-Fahrphysik* is on for the race.
 - **The finish.** The race ends after the stretch. The result page shows *Deine Zeit* (your
   time). In a daily challenge, the line below shows your best time of the day, or *Neue
-  Bestzeit!* (new best time) in green.
+  Bestzeit!* (new best time) in green. *Weiter* leads to the same lines with the buttons
+  *Rennen wiederholen* (repeat the race) and *Hauptmenü* (main menu). No highscore list follows.
   *Rennen wiederholen* (repeat the race) starts the same stretch again.
 
 ![challenge race](../screenshots/19-challenge-race.png)

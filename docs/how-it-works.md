@@ -99,7 +99,12 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Result.** The result overlay (page 0Eh) adds the lines *Runde 1* to *Runde 3* and *Gesamt*
   from 0x422643 on. In a challenge, the patch adds its own lines instead (texts 168 to 170) and
   continues at 0x4233B5: the run's time and, in a daily challenge, the best time of the day or
-  *Neue Bestzeit!*. The copy of a faster daily run sets a flag for that.
+  *Neue Bestzeit!*. The copy of a faster daily run sets a flag for that. The result list (page
+  0Fh) adds its three buttons, then the highscore table from 0x42351F on. In a challenge, it
+  adds the same lines and the title *Herausforderung* instead, and jumps to the page's end
+  (0x424658).
+- **HUD best time.** The HUD reads the best lap at 0x41965C (Hud + player × 4 + 18h). In a daily
+  challenge with a time of the day, it reads the best time of the day instead.
 - **HUD.** The lap line (text 100 at 0x419078) becomes text 105 with the metres:
   (length − progress) × path length. The minimap gives each vertex of its track line its colour
   at 0x418C28. A challenge colours the stretch magenta, the finish white and the rest dim.

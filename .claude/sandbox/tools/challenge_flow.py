@@ -260,6 +260,14 @@ def run(g, out, daily):
         check("result overlay: no best time in a random challenge", not any("Bestzeit" in t for t in texts), repr(texts))
     page = g.select(0)
     check("result 'Weiter' leads to the result list (no name entry)", page == 0x0F, "page %s" % page)
+    time.sleep(1.0)
+    texts = overlay_texts(g)
+    print("-- result list:", texts)
+    g.shot(os.path.join(out, "4d_list.png"))
+    check("result list: the buttons, the result lines and the title 'Herausforderung', no highscore table",
+          texts[:3] == ["Rennen wiederholen", "Phantom Kart übertragen", "Hauptmenü"]
+          and any(t.startswith("Deine Zeit: ") for t in texts) and any("Herausforderung" in t for t in texts)
+          and not any("Rang" in t or "Highscore" in t or "Spieler" in t for t in texts), repr(texts))
     phantom = os.path.join(T.PH, "daily-%d.mhk2" % day)
     if daily:
         check("the phantom of the day is saved", os.path.exists(phantom))
