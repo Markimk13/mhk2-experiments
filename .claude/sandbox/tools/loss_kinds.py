@@ -7,11 +7,10 @@ of 2026-11-27 or later) and ai_race.py recordings (with cstate). Default: kart 0
 race_recorder.py file (the player), the computer karts (1..6) for an ai_race.py file.
 
 A loss: the speed falls by --drop (share) or more within --window seconds, from above --min
-units/s, without the brake (only computer karts have a brake column). Each loss gets one kind:
-  item    the kart was in a power-up hit state (car+29Ch 10, 15, 20 or 24) within 0.3 s
-  air     no wheel touched the ground right before (a landing, a jump)
-  edge    at the edge of the road (lat below 0.2 or above 0.8)
-  middle  everything else: in the middle of the road, wheels down, no power-up
+units/s, without the brake (only computer karts have a brake column). Each loss gets
+"<event>/<where>": the event is the first of the game's own reaction animations (car+29Ch) within
+0.3 s: crash, scratch, drop, respawn, landing, anim22, anim23, or "-" for none; where is "air" (no
+wheel down right before), "edge" (lat below 0.2 or above 0.8) or "middle".
 "middle" is where an invisible obstacle would show. Ground: wood if a wheel stood on the track's
 wood material in the window, else the material of the wheels (names known for Insel; other
 tracks print the index and the resistance from the race's .json).
@@ -23,7 +22,13 @@ import json
 import math
 import os
 
-HIT = {10, 15, 20, 24}
+# car+29Ch is the character's animation (fn 0x42D6C0 picks it): 12 / 13 steering, 15 drop (wheels on
+# the drop geometry, CAL_drop), 16..19 crash in direction 0..3 and 21 scratch (the collision message
+# at 0x4322A5: velocity change in the kart's frame above 10 / 5 / 7 / 5 units/s, scratch above 75 %
+# of it; CAL_crash / CAL_scratch), 20 respawn, 7 jump landing, 22 / 23 chosen in a loop over the other
+# karts (not traced). Which animation a power-up hit plays was not traced.
+EVENT = {15: "drop", 16: "crash", 17: "crash", 18: "crash", 19: "crash", 20: "respawn", 21: "scratch",
+         22: "anim22", 23: "anim23", 7: "landing"}
 NAMES = {2: ["beton", "sand", "sandstrasse", "gras", "holz", "sandstrasse grip", "seite"]}   # track index 2 = Insel
 
 
@@ -99,17 +104,17 @@ def main():
                     continue
                 r = rows[i]
                 t_end = rows[hit]["t"] + 0.3
-                st = {int(x["cstate"]) for x in rows[i:] if x["t"] <= t_end}
+                anims = [int(x["cstate"]) for x in rows[i:] if x["t"] <= t_end and int(x["cstate"]) in EVENT]
                 surfs = {int(rows[k]["surf%d" % w]) for k in range(max(0, i - 3), hit + 1) for w in range(4)}
                 g = ground_name(track, surfs, table)
-                if st & HIT:
-                    kind = "item"
-                elif not any(r["c%d" % k] for k in range(4)):
-                    kind = "air"
+                event = EVENT[anims[0]] if anims else "-"
+                if not any(r["c%d" % k] for k in range(4)):
+                    where = "air"
                 elif not 0.2 < r["lat"] < 0.8:
-                    kind = "edge"
+                    where = "edge"
                 else:
-                    kind = "middle"
+                    where = "middle"
+                kind = "%s/%s" % (event, where)
                 kinds[g][kind] += 1
                 events.append((os.path.basename(path), kn, r["t"], sp[i], sp[hit], r["x"], r["y"], r["z"], r["lat"], g, kind))
                 while i < len(rows) and rows[i]["t"] <= t_end:
@@ -118,7 +123,7 @@ def main():
     for g in sorted(set(tim) | set(kinds), key=lambda g: -tim[g]):
         k = kinds[g]
         print("  %-22s %7.1f s  %s" % (g, tim[g], "  ".join("%s %d (%.2f)" % (n, k[n], 10 * k[n] / tim[g] if tim[g] else 0)
-                                                           for n in ("item", "air", "edge", "middle") if k[n])))
+                                                           for n in sorted(k))))
     if a.list:
         print("file                          kart       t   from ->   to      x      y      z   lat  ground      kind")
         for e in events:
