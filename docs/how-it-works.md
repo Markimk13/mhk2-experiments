@@ -79,8 +79,9 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Seeds.** *Zufall* takes `GetTickCount`. *Täglich* takes the day: the days since 1601 from
   `GetSystemTimeAsFileTime` (UTC), times 9E3779B1h, xor 5EED35h.
 - **Tuning sets.** The patcher draws the 64 sets when it builds the exe, with a fixed seed. It
-  keeps a set when `tune_limit()` gives it the line *Am Limit* or *Hart am Limit*. The gravity
-  stays in 50 % to 200 %.
+  keeps a set when `tune_limit()` gives it the line *Am Limit* or *Hart am Limit* and when
+  `top_speed()` is at least that of the preset *150 cc* for every character. The gravity stays in
+  50 % to 200 %.
 - **Path lengths.** The page shows the length in metres before the track is loaded. So the
   patcher holds the path length of each track, measured in the game with the path length
   function (0x4437F0): 2222, 1799, 2860, 3401, 1260, 2641, 2906 and 2435 units. 1 unit is 1 m.
@@ -129,7 +130,9 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.66, 0.74 and
   0.85, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
   cuts the hundredths: a float a hair below n would show n − 1. A run wins a medal exactly when
-  its own time shows n or less. `challenge_medals()` in the patcher does the same in Python. The
+  its own time shows n or less. Before the rounding, each medal is at least the stretch's metres
+  / top speed / `CH_MEDAL_CAPS` (0.93, 0.82, 0.72; the top speed in km/h from `tune_top`, as the
+  page shows it, divided by 3.6). `challenge_medals()` in the patcher does the same in Python. The
   result compares the run's time with each medal (time ≤ medal wins) and shows text 173 to 175,
   or text 176 with the bronze time.
 - **Medal tables.** The tables come from races of computer karts: class 5 with the set's values,

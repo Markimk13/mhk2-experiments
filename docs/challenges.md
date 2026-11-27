@@ -46,7 +46,8 @@ track, driver and tuning values are back when you leave.
   driver and the medal times.
 - **The kart.** A challenge always uses the tuning class, with values that are hard but drivable.
   The tuning page would call them *Am Limit* or *Hart am Limit*
-  ([Tuning class](tuning-class.md)). The switch *60-FPS-Fahrphysik* is on for the race.
+  ([Tuning class](tuning-class.md)). The kart is at least as fast as in 150 cc. The switch
+  *60-FPS-Fahrphysik* is on for the race.
 - **The power can.** Every challenge race gives you one power can when the race starts. Fire it
   with the power-up key, at the place where it gains the most time. *Rennen wiederholen* gives
   you a new one. The phantom of the day shows where your best run fired it.
@@ -72,7 +73,8 @@ the pause page show them. The result page shows the medal that your time won:
 
 The times come from races of computer karts with the same track, tuning values and driver. A
 good player is about 30 % faster than these computer karts. For gold, you need a good run and the
-power can at the right place. For silver, a good run without the power can is enough.
+power can at the right place. For silver, a good run without the power can is enough. No medal
+asks for more than the top speed of your kart allows.
 
 ## Records and phantoms
 
@@ -96,11 +98,11 @@ power can at the right place. For silver, a good run without the power can is en
 This section is for players who want the numbers.
 
 The patch measured the computer karts with the better driver of *Verbesserte Gegner* on every
-track, about 160 races in all. From these races, it knows:
+track, about 170 races in all. From these races, it knows:
 
 - a lap time for each track,
-- a factor for each of the 64 sets of tuning values: the fastest set needs about 0.67 times the
-  average time, the slowest about 2.2 times,
+- a factor for each of the 64 sets of tuning values: the fastest set needs about 0.75 times the
+  average time, the slowest about 1.75 times,
 - how the lap time spreads over the track, in 64 parts,
 - the time that the standing start costs with each set (0 to 3 seconds),
 - a factor for each driver (within 2 %).
@@ -109,7 +111,12 @@ The computer karts' time is the sum of these for the drawn stretch. Gold is 0.66
 0.74 and bronze 0.85. These factors come from the first daily challenge: a good run took 0.71 of
 the computer karts' time without the power can, and 0.62 with it.
 
-A test left out one race at a time and computed it from the others. For a full lap, the model was off by 3.5 % in the middle. For a
-stretch, it was off by 4.5 % in the middle, and one stretch in ten was off by 16 % or more.
+On some tracks, the computer karts are faster than the top speed allows. So no medal needs a
+higher average speed than a share of the top speed: 93 % for gold, 82 % for silver and 72 % for
+bronze. The same run on Insel averaged 82 % of the top speed without the power can, and 93 % with
+it.
+
+A test left out one race at a time and computed it from the others. For a full lap, the model was off by 2.6 % in the middle. For a
+stretch, it was off by 4.2 % in the middle, and one stretch in ten was off by 15 % or more.
 
 How the patch does it: [How it works](how-it-works.md#challenges).

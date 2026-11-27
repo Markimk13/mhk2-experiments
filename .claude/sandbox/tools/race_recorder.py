@@ -367,6 +367,12 @@ def meta(p, cars):
     # the learned way; both count only with the marker "STDG"
     m["gegner"] = list(struct.unpack("<2i", p.read(gp + 0x2E6C, 8) or b"\0" * 8))
     m["gegner_valid"] = (p.read(gp + 0x2D98, 4) or b"") == b"STDG"
+    # a challenge (patch 1.11, CH_DATA 0x885100): active, start, length (path shares), day, the seed
+    # it started from, the tuning set, the medal times
+    if p.i32(0x885100):
+        m["challenge"] = {"start": p.f32(0x885104), "length": p.f32(0x885108), "day": p.i32(0x88511C),
+                          "seed": p.u32(0x885128), "set": p.i32(0x88513C),
+                          "medals": list(struct.unpack("<3f", p.read(0x885180, 12) or bytes(12)))}
     m["kart_index"] = [p.i32(c + 0x304) for c in cars]
     m["human_flag_308"] = [(p.read(c + 0x308, 1) or b"\0")[0] for c in cars]
     return m

@@ -331,3 +331,23 @@ stretch from them at the draw.
   after the start of two random draws ended in a wall.
 - **Not done**: step 4 (the computer kart driving real challenges from their start), step 5 (what
   the can saves; gold does not need the can yet), a medal kept with the daily best, an icon.
+- **150 cc floor (2026-11-27, user: "the top speed should be not slower than 150 ccm (would be too
+  boring otherwise)")**: `challenge_sets()` keeps a set only when `top_speed()` >= the preset
+  *150 cc* for every character (`CH_MIN_TOP_PRESET`; 150 cc = 50.5 units/s, about 180 km/h for
+  character 0, 160 for the slowest; the user had thought 130). 18 sets went (down to 45 km/h on
+  the page; set 18 = 320/100/225/25/275/150/450/200 showed 45 km/h, the user drove about 80, so
+  `top_speed` is wrong that far down). The kept sets keep their order (indices 0..45), the new
+  ones are 46..63; every draw changed, including the daily of 2026-11-27 (the user's seed
+  41853500 had set 18 and medals no one could reach: its lap on Moorhuhn X came from a partial run
+  of stuck computer karts). Old runs in `runs\medals\pace_v1`, kept runs renamed into `pace`.
+- **Refit with the new sets (2026-11-28)**: 36 runs of sets 46..63 on tracks 0 and 4; 160 runs:
+  lap check abs median 2.6 %, stretches 4.2 %, 90 % below 14.9 %; set factors 0.75..1.76.
+- **Top speed cap (CH_MEDAL_CAPS 0.93 / 0.82 / 0.72, 2026-11-28)**: the computer karts' average
+  speed against `top_kmh` (character 0) per track, median: Moorhuhn X 0.91, Ägypten 0.98 (up to
+  1.23), Insel 0.59, the rest 0.75..0.81. A human averaged 0.82 (no can) / 0.93 (can) on Insel.
+  With the new tables the dailies of 11-28 and 11-29 had gold at 1.02 / 1.03 of the top speed, so
+  each medal is now max(AI time x factor, metres / (km/h / 3.6) / cap) before the rounding;
+  `ch_medals` calls `tune_top` (edx = the values, the character from gp+58h) first. Suspects for
+  the fast computer karts: the item boxes of their championship races (power-ups), resets that
+  move a kart forward. Not checked. A recording of the user's challenge runs (`race_recorder.py`
+  stores the challenge since then: seed, set, start, length, medals) shows the human side.

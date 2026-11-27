@@ -341,9 +341,12 @@ def tune_limit(values):
 def challenge_sets():
     """The CH_SET_COUNT sets of tuning values a challenge picks from: random values on each row's
     grid (gravity in CH_GRAVITY), kept when the tuning page would call them "Am Limit" or "Hart
-    am Limit" (a challenge, but drivable). Fixed by the seed of the generator."""
+    am Limit" (a challenge, but drivable) and when they are at least as fast as 150 cc with every
+    driver (CH_MIN_TOP_PRESET). Fixed by the seed of the generator."""
     import random
     rnd = random.Random(35)
+    floor = dict(TUNE_PRESETS)[CH_MIN_TOP_PRESET]
+    floor = [top_speed(floor, c) for c in range(len(TOP_CHARS))]
     sets = []
     while len(sets) < CH_SET_COUNT:
         vals = []
@@ -351,7 +354,8 @@ def challenge_sets():
             if k == PRESET_VALUES - 1:
                 lo, hi = CH_GRAVITY
             vals.append(rnd.randrange(lo, hi + 1, step))
-        if tune_limit(vals)[0] >= 1 and tuple(vals) not in sets:
+        if (tune_limit(vals)[0] >= 1 and tuple(vals) not in sets
+                and all(top_speed(vals, c) >= floor[c] for c in range(len(TOP_CHARS)))):
             sets.append(tuple(vals))
     return sets
 
@@ -398,7 +402,8 @@ def challenge_medals(seed):
     """The gold, silver and bronze times of a draw (mirrors ch_medals): the reference time
     = (lap time of the track * factor of the set * share of the lap time over the stretch
     + standing loss of the set) * factor of the character; each medal a factor on it, rounded to
-    hundredths, plus CH_MEDAL_UP hundredths."""
+    hundredths, plus CH_MEDAL_UP hundredths. No medal is faster than the stretch at CH_MEDAL_CAPS of
+    the top speed."""
     track, start, share, char, _ = challenge_draw(seed)
     s = _draw_set(seed)
     cum = challenge_pace_cum()[track]
@@ -409,7 +414,9 @@ def challenge_medals(seed):
     e = _f32(start + share)
     part = c(e - 1.0) + 1.0 if e >= 1.0 else c(e)
     ref = ((part - c(start)) * CH_PACE_LAP[track] * CH_PACE_SET[s] + CH_PACE_LOSS[s]) * CH_PACE_CHAR[char]
-    return tuple((round(ref * f * 100) + CH_MEDAL_UP) / 100 for f in CH_MEDAL_FACTORS)
+    per = _f32(_f32(share) * _f32(CH_PATHS[track]) / top_kmh(challenge_sets()[s], char))   # metres per km/h
+    return tuple((round(max(ref * f, per * _f32(3.6 / cap)) * 100) + CH_MEDAL_UP) / 100
+                 for f, cap in zip(CH_MEDAL_FACTORS, CH_MEDAL_CAPS))
 
 
 def _draw_set(seed):
@@ -556,6 +563,9 @@ CH_LEN_MIN, CH_LEN_MAX = 0.3, 0.7
 CH_DAILY_MUL, CH_DAILY_XOR = 0x9E3779B1, 0x5EED35
 CH_SET_COUNT = 64
 CH_GRAVITY = (50, 200)          # the gravity of a set stays in this range (percent)
+# A set is at least as fast as 150 cc with every driver (top_speed; user, 2026-11-27: "too boring
+# otherwise"). Before, 20 of the 64 sets were slower, down to about 45 km/h.
+CH_MIN_TOP_PRESET = "150 cc"
 # Medals (bronze, silver, gold): a reference time for every draw, from pace tables measured in the
 # sandbox (computer karts with the learned driver at full throttle, .claude/sandbox/tools/
 # stretch_pace.py and pace_fit.py). CH_PACE_LAP: lap time per track (seconds) for set factor 1;
@@ -566,51 +576,56 @@ CH_GRAVITY = (50, 200)          # the gravity of a set stays in this range (perc
 # 20.60 s without the power can and 18.12 s with it (user, 2026-11-27: "far too easy" at 0.97 /
 # 1.0 / 1.1). Gold needs a good run with the can, silver a good run without it.
 CH_MEDAL_FACTORS = (0.66, 0.74, 0.85)
+# No medal needs a higher average speed than this share of the top speed (top_kmh of the set and
+# the driver): the computer karts are faster than the top speed allows on some tracks (Moorhuhn X,
+# Ägypten: median 0.9 .. 1.0 of it, the item boxes of their races?), Insel 0.6. The user's run on
+# Insel averaged 0.82 of the top speed without the can and 0.93 with it (2026-11-27).
+CH_MEDAL_CAPS = (0.93, 0.82, 0.72)
 # A medal of n hundredths is stored as (n + 0.99) / 100: the game's time text cuts the hundredths,
 # so the medal shows n (and not n - 1 for a float a hair below), and a run wins it exactly when its
 # own time shows n or less.
 CH_MEDAL_UP = 0.99
-CH_PACE_LAP = (40.45, 39.59, 62.99, 70.26, 33.68, 53.62, 49.28, 49.08)
-CH_PACE_SET = (0.733, 0.751, 1.219, 0.754, 0.988, 0.815, 0.754, 1.685, 0.964, 1.053, 0.844, 0.903,
-    0.872, 1.143, 1.557, 1.276, 1.923, 1.048, 1.706, 1.249, 1.034, 0.995, 0.958, 1.591, 0.942,
-    0.890, 0.866, 0.949, 0.777, 1.072, 0.668, 1.128, 0.940, 1.067, 1.106, 0.683, 0.760, 1.260,
-    1.712, 0.875, 0.839, 0.887, 1.014, 1.808, 1.315, 1.005, 2.179, 0.731, 0.763, 0.922, 0.808,
-    0.703, 0.833, 0.849, 1.560, 0.824, 0.713, 1.281, 1.115, 0.975, 0.740, 0.920, 0.825, 0.684)
-CH_PACE_LOSS = (0.85, 0.42, 1.09, 0.73, 0.49, 0.41, 0.79, 1.16, 1.06, 0.34, 1.01, 2.01, 0.35, 1.33,
-    0.00, 0.17, 2.32, 0.00, 0.00, 1.10, 0.00, 0.13, 0.52, 0.41, 0.67, 0.34, 0.00, 0.98, 0.59, 2.81,
-    0.66, 0.00, 1.05, 0.00, 0.59, 0.77, 0.76, 0.00, 1.92, 1.82, 0.98, 0.08, 0.37, 0.00, 0.52, 0.02,
-    1.22, 0.74, 1.00, 1.02, 0.68, 0.45, 0.26, 0.04, 1.81, 0.11, 1.37, 0.50, 1.66, 0.13, 0.19, 1.13,
-    0.33, 0.69)
-CH_PACE_CHAR = (0.989, 0.986, 1.002, 0.996, 0.996, 1.010, 1.022)
+CH_PACE_LAP = (34.83, 34.54, 54.24, 61.39, 30.74, 46.60, 42.28, 42.82)
+CH_PACE_SET = (0.840, 0.861, 1.398, 0.864, 1.132, 0.934, 0.864, 1.088, 1.188, 0.953, 1.018, 0.984,
+    1.289, 1.756, 1.081, 1.062, 1.005, 0.977, 1.071, 0.876, 1.209, 0.753, 1.269, 1.060, 1.204,
+    0.770, 0.858, 0.987, 0.946, 1.001, 1.144, 0.824, 0.861, 1.039, 0.911, 0.793, 0.940, 0.957,
+    0.930, 0.804, 1.449, 1.100, 0.835, 1.038, 0.931, 0.771, 1.005, 1.307, 0.896, 1.410, 0.859,
+    1.184, 1.025, 0.995, 1.383, 0.805, 0.921, 0.893, 1.361, 0.945, 0.887, 0.813, 0.845, 0.929)
+CH_PACE_LOSS = (0.85, 0.42, 1.09, 0.73, 0.49, 0.41, 0.79, 1.06, 0.34, 1.01, 2.01, 0.35, 1.33, 0.00,
+    0.52, 0.67, 0.41, 0.00, 0.98, 0.59, 2.81, 0.66, 0.00, 1.05, 0.00, 0.77, 0.84, 1.82, 0.98, 0.08,
+    0.37, 0.74, 1.00, 1.02, 0.68, 0.45, 0.26, 0.04, 0.11, 1.37, 0.60, 0.13, 0.19, 1.13, 0.33, 0.69,
+    0.65, 0.51, 0.69, 0.00, 0.79, 0.00, 0.55, 1.09, 0.67, 1.30, 0.00, 0.12, 0.49, 0.20, 0.63, 1.59,
+    0.46, 0.00)
+CH_PACE_CHAR = (0.989, 0.987, 1.004, 0.996, 0.996, 1.010, 1.019)
 CH_PACE_SHAPE = (
-    (156, 183, 176, 150, 174, 153, 165, 165, 177, 183, 156, 157, 153, 147, 146, 144, 144, 117, 113,
-     126, 130, 112, 134, 146, 143, 145, 142, 109, 143, 171, 155, 154, 134, 172, 161, 165, 178, 184,
-     176, 139, 148, 122, 137, 167, 215, 188, 157, 142, 164, 202, 181, 159, 136, 146, 173, 236, 217,
-     182, 164, 157, 117, 155, 148, 111),
+    (149, 176, 179, 155, 175, 153, 164, 162, 180, 183, 155, 156, 151, 146, 145, 143, 143, 116, 112,
+     123, 129, 112, 134, 145, 142, 144, 141, 109, 141, 171, 155, 153, 133, 172, 162, 164, 175, 188,
+     178, 139, 147, 121, 136, 166, 223, 196, 158, 141, 164, 208, 185, 159, 135, 146, 171, 252, 218,
+     182, 163, 156, 115, 152, 146, 109),
     (137, 134, 146, 194, 467, 215, 154, 151, 156, 151, 191, 267, 133, 205, 199, 155, 147, 143, 153,
      150, 161, 160, 132, 125, 135, 136, 133, 125, 119, 116, 115, 120, 125, 118, 111, 105, 105, 85,
      119, 128, 128, 125, 131, 131, 138, 150, 159, 140, 108, 149, 192, 169, 250, 186, 153, 132, 92,
      298, 179, 167, 164, 193, 207, 144),
-    (111, 117, 118, 140, 151, 140, 143, 133, 131, 128, 125, 124, 556, 140, 137, 138, 123, 128, 116,
-     121, 112, 128, 124, 113, 118, 129, 124, 286, 544, 153, 132, 120, 121, 122, 114, 118, 117, 147,
-     478, 176, 148, 133, 127, 114, 117, 120, 122, 134, 137, 140, 150, 132, 126, 124, 136, 146, 156,
-     155, 232, 245, 224, 141, 125, 120),
-    (197, 152, 154, 156, 165, 152, 152, 135, 122, 126, 190, 147, 468, 176, 149, 141, 151, 313, 203,
-     128, 143, 117, 163, 202, 142, 138, 132, 136, 138, 139, 138, 153, 153, 145, 137, 147, 128, 125,
-     116, 157, 123, 264, 225, 166, 175, 146, 137, 151, 155, 128, 121, 109, 126, 135, 116, 131, 132,
-     144, 207, 142, 124, 100, 157, 159),
-    (106, 110, 107, 112, 104, 106, 107, 112, 105, 110, 169, 143, 175, 203, 284, 149, 132, 122, 117,
-     177, 156, 143, 135, 124, 127, 125, 130, 122, 108, 111, 108, 108, 107, 104, 89, 97, 98, 106,
-     131, 522, 181, 200, 205, 184, 118, 120, 129, 135, 132, 126, 227, 475, 387, 333, 290, 253, 163,
-     156, 133, 120, 120, 114, 121, 78),
-    (139, 135, 164, 241, 177, 168, 392, 253, 262, 336, 263, 220, 116, 176, 175, 155, 148, 138, 138,
-     142, 143, 133, 122, 124, 114, 96, 98, 116, 107, 104, 116, 124, 125, 132, 135, 136, 132, 126,
-     164, 184, 123, 184, 189, 157, 148, 142, 132, 116, 119, 146, 132, 141, 119, 138, 133, 132, 137,
-     296, 200, 146, 126, 133, 129, 110),
-    (133, 132, 77, 111, 150, 154, 159, 156, 158, 155, 147, 144, 143, 145, 154, 160, 156, 161, 245,
-     180, 159, 147, 142, 136, 136, 130, 131, 128, 135, 154, 139, 148, 294, 248, 160, 147, 139, 143,
-     139, 145, 140, 302, 186, 172, 150, 140, 131, 141, 129, 134, 143, 131, 136, 156, 147, 142, 152,
-     151, 142, 145, 294, 201, 172, 143),
+    (109, 114, 116, 137, 151, 140, 142, 132, 129, 126, 123, 122, 437, 139, 136, 137, 124, 130, 116,
+     120, 111, 127, 124, 111, 117, 128, 124, 302, 580, 156, 134, 120, 121, 122, 114, 116, 115, 146,
+     510, 181, 150, 134, 126, 113, 116, 117, 119, 131, 135, 138, 153, 135, 129, 126, 137, 149, 160,
+     162, 244, 264, 236, 144, 125, 120),
+    (201, 151, 152, 154, 162, 148, 152, 135, 123, 126, 190, 155, 496, 176, 148, 138, 147, 333, 208,
+     126, 140, 113, 159, 197, 142, 138, 132, 134, 135, 136, 137, 150, 151, 144, 136, 143, 125, 121,
+     113, 153, 126, 279, 226, 169, 151, 147, 136, 146, 156, 127, 120, 110, 123, 131, 117, 134, 134,
+     142, 214, 142, 125, 101, 163, 159),
+    (100, 105, 101, 106, 98, 100, 100, 104, 97, 101, 171, 141, 176, 206, 301, 149, 129, 118, 113,
+     179, 172, 142, 132, 118, 119, 121, 132, 118, 104, 106, 102, 101, 101, 97, 83, 93, 93, 100,
+     126, 549, 186, 215, 221, 190, 115, 122, 130, 132, 128, 122, 245, 519, 418, 344, 300, 235, 162,
+     154, 128, 114, 114, 109, 115, 74),
+    (141, 135, 166, 254, 179, 170, 421, 199, 279, 356, 278, 159, 115, 176, 174, 153, 147, 137, 136,
+     135, 132, 141, 127, 128, 117, 97, 99, 116, 107, 103, 112, 118, 122, 127, 129, 132, 129, 123,
+     159, 184, 123, 184, 193, 160, 149, 143, 133, 118, 121, 153, 136, 143, 119, 139, 134, 133, 139,
+     318, 204, 145, 126, 135, 130, 112),
+    (137, 136, 78, 113, 147, 152, 156, 152, 155, 151, 145, 144, 141, 142, 149, 154, 152, 154, 251,
+     178, 157, 145, 141, 135, 136, 130, 131, 128, 129, 153, 140, 146, 287, 255, 164, 151, 143, 146,
+     142, 147, 143, 323, 193, 174, 152, 143, 133, 142, 130, 135, 142, 129, 131, 149, 139, 136, 148,
+     147, 140, 144, 302, 209, 176, 146),
     (175, 256, 192, 173, 157, 134, 123, 131, 109, 125, 125, 142, 150, 138, 136, 143, 88, 106, 152,
      146, 157, 152, 166, 148, 139, 145, 172, 150, 131, 127, 145, 113, 157, 150, 234, 156, 150, 142,
      121, 140, 144, 151, 152, 139, 135, 135, 140, 136, 240, 154, 139, 121, 147, 526, 276, 192, 173,
@@ -5083,7 +5098,15 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # The medal times of the draw (ebx = GameParameters, ebp = tune_T; see challenge_medals).
     # Clobbers eax, ecx, edx.
     a.label("ch_medals")
+    a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
+    a.call("tune_top")                                                          # eax = km/h
+    a.raw("50", "push        eax")
     a.raw("8B 4B 20", "mov         ecx,dword ptr [ebx+20h]")
+    t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
+    disp = tdisp("ch_paths")
+    a.raw("D8 8C 8D " + _le(disp), "fmul        dword ptr [ebp+ecx*4+%08Xh]" % disp)
+    a.raw("DA 34 24", "fidiv       dword ptr [esp]")
+    a.raw("D9 1C 24", "fstp        dword ptr [esp]")                         # metres per km/h
     t_mem("D9", 0, CH_START, "fld         dword ptr %s")
     t_mem("D8", 0, CH_LEN, "fadd        dword ptr %s")                    # the end
     t_mem("D8", 2, "ch_one", "fcom        dword ptr %s")
@@ -5114,11 +5137,23 @@ def build_payload(base, factors, pulls, known=None, version=None):
             a.raw("D9 C0", "fld         st(0)")
         disp = tdisp("ch_medal_factors") + 4 * k
         a.raw("D8 8D " + _le(disp), "fmul        dword ptr [ebp+%08Xh]" % disp)
+        a.raw("D9 04 24", "fld         dword ptr [esp]")
+        disp = tdisp("ch_medal_caps") + 4 * k
+        a.raw("D8 8D " + _le(disp), "fmul        dword ptr [ebp+%08Xh]" % disp)   # the stretch at the cap
+        a.raw("D8 D1", "fcom        st(1)")
+        fpu_flags(0x01)
+        a.jcc_short("jne", "ch_medals_ai%d" % k)                                 # the cap's time is shorter
+        a.raw("DD D9", "fstp        st(1)")
+        a.jmp_short("ch_medals_round%d" % k)
+        a.label("ch_medals_ai%d" % k)
+        a.raw("DD D8", "fstp        st(0)")
+        a.label("ch_medals_round%d" % k)
         t_mem("D8", 1, "ch_hundred", "fmul        dword ptr %s")
         a.raw("D9 FC", "frndint")
         t_mem("D8", 0, "ch_medal_up", "fadd        dword ptr %s")
         t_mem("D8", 1, "hundredth", "fmul        dword ptr %s")
         t_mem("D9", 3, CH_MEDALS + 4 * k, "fstp        dword ptr %s")
+    a.raw("59", "pop         ecx")
     a.raw("C3", "ret")
 
     # eax = today, in days since 1601 (UTC). ebp = tune_T. Clobbers ecx, edx.
@@ -6560,6 +6595,9 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<f", 64.0), "float 64")
     a.label("ch_medal_up")
     a.data(struct.pack("<f", CH_MEDAL_UP), "float %g: a medal of n hundredths is n.99, see CH_MEDAL_UP" % CH_MEDAL_UP)
+    a.label("ch_medal_caps")
+    a.data(struct.pack("<3f", *(3.6 / c for c in CH_MEDAL_CAPS)),
+           "float: 3.6 / CH_MEDAL_CAPS (%g, %g, %g), the slowest medal times per metre and km/h" % CH_MEDAL_CAPS)
     a.label("ch_medal_factors")
     a.data(struct.pack("<3f", *CH_MEDAL_FACTORS), "float %g, %g, %g: gold, silver, bronze on the reference time" % CH_MEDAL_FACTORS)
     a.label("ch_pace_lap")
