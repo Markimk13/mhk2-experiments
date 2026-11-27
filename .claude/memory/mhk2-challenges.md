@@ -351,3 +351,8 @@ stretch from them at the draw.
   the fast computer karts: the item boxes of their championship races (power-ups), resets that
   move a kart forward. Not checked. A recording of the user's challenge runs (`race_recorder.py`
   stores the challenge since then: seed, set, start, length, medals) shows the human side.
+- **The cap decides most draws**: in 1000 random seeds, 87 % (gold) to 88 % (silver, bronze) of
+  the medal times are the cap's, not the computer karts'. So the medals are mostly "the stretch at
+  93 / 82 / 72 % of the top speed", blind to bends and hills; the pace tables matter only where
+  the computer karts are slow (Insel, slow sets). Next: the user's daily runs with the recorder;
+  if bends make 82 % too hard on twisty stretches, a share per track or from the shape table.
