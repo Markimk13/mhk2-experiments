@@ -1,6 +1,6 @@
 ---
 name: mhk2-challenges
-description: "The idea of async challenges (a seed gives a ~20 s stretch of a track, tuning values and character; players send each other the seed and their phantom; a daily seed from the date) and what the exe offers for it (a moved start tested, works without exe change): where the race-start grid is placed, how a finish on path progress could replace the lap count, why segment phantoms need no change; tools datpack.py and startpos_test.py"
+description: "Challenges (issue #35, built 2026-11-27): the menu page, the draw, the daily best and phantom, the settings swap and its traps; the idea of async challenges (a seed gives a ~20 s stretch of a track, tuning values and character; players send each other the seed and their phantom; a daily seed from the date) and what the exe offers for it (a moved start tested, works without exe change): where the race-start grid is placed, how a finish on path progress could replace the lap count, why segment phantoms need no change; tools datpack.py and startpos_test.py"
 metadata:
   type: project
 ---
@@ -109,6 +109,50 @@ texture `Boden_Start_UV` of level.bsp; there is no object to move).
 - Pictures with three games open catch whatever window is on top (the capture takes the screen
   area); take pictures with one game at a time.
 - Short stretches are only a few path points on the minimap: 0.03 of track 1 is about 4 points.
+
+## The menu and the daily challenge (2026-11-27, third commit; player page docs/challenges.md)
+
+User's spec: a third button under *Ein Spieler*; on its page *Zufall* and *Täglich* show the draw
+and (only *Täglich*) the best time of the day; *Weiter* races against the best-time ghost (only
+*Täglich*); a phantom only for *Täglich*, one per day. Built as follows (patcher `CH_*`,
+`mode_*`, `ch_*`):
+- **Page 4** is built by the game from a table (texts 281..287, kinds 0 label / 1 button, y 160,
+  220, 260, 340, 400, 440, 520). `mode_build` (page_build dispatch) turns item 3, the label "Zwei
+  Spieler" (never selected), into a button (kind 1, y 300, text 150) and appends the label again
+  (y 350). The game's item numbers stay; `mode_update` catches "select" on item 3, all else goes
+  to the game's handler 0x41D400. Up / down steps by item number, so 1 -> 2 -> 3 -> 4 is right.
+- **Page 22h** (`ch_build` / `ch_update`): items 0 Zufall, 1 Täglich, 2 Weiter, 3 Zurück, then the
+  labels (track + metres + start + driver; the tuning values with `values_text_id` /
+  `top_text` like the pause page; daily: best time via 0x411FA0 "mm:ss:hh" or "noch keine Zeit").
+  Test builds route `tune_pressed` to MENU_INJ, so tests press keys on both pages.
+- **The draw** (`ch_draw`, Python mirror `challenge_draw()`): xorshift32; track % 8, start % 1000
+  per mille, metres 1000 + % 601 -> share of `CH_PATHS` (measured: 2222, 1799, 2860, 3401, 1260,
+  2641, 2906, 2435), kept in 0.3..0.7; character % 7; set % 64 of `challenge_sets()` (random grid
+  values, gravity 50..200, kept when `tune_limit` level >= 1). Seeds: GetTickCount (IAT
+  0x59514C); daily: day = FILETIME / 864e9 (GetSystemTimeAsFileTime, IAT 0x59511C, UTC) * 9E3779B1h
+  xor 5EED35h.
+- **Settings swap** (`CH_SWAP`: gp+10h class, 1Ch mode, 20h track, 4Ch switch dword, 58h
+  character, the eight TUNE_VALUES; saved at CH_DATA+40h). `ch_arm` runs `tune_defaults` first
+  (a save without the tuning marker would otherwise get the defaults over the challenge's
+  values at race start) and swaps; `ch_disarm` swaps back on page 4 / the main menu (main menu
+  object only, not the race overlay). Both writes of settings.dat (`File::Write` at 0x4122BB in
+  the menu end fn 0x412100 = every race start, and 0x403B72 in GameMK2::Exit) are wrapped with a
+  swap, so the file never holds a challenge.
+- **Trap: gp+4Ch low byte.** It is the game's own bool. When it is 0, the race start (0x408777)
+  takes a debug path: track from the config's "level", 150 cc, Moorhuhn. The first draw left it 0
+  (the swap had put the empty save area there); `ch_draw` now keeps the player's byte.
+- **Time:** the game's total time is the sum of the three lap times (fn 0x4378D0); a challenge
+  counts no lap, so `ch_finish` writes the lap timer car+250h as lap 1.
+- **Daily:** `ch_promote` (in `phantom_promote`) copies new-phantom.mhk2 to
+  `data\Phantom\daily-<day>.mhk2` when faster than the day's best, and keeps marker `DAYC`, day,
+  time at gp+`DAILY_ENTRY` (0x2BB0; file 0x2BAC; 50 cc "track 60", never reached). The ghost
+  hooks load that file (random: an empty name). Old days' files stay.
+- **Restart** ("Rennen wiederholen") runs the grid hook again: same start, done 0. Tested.
+- Section `.mod200` grew to 0x7000.
+- Test: `challenge_flow.py builds\ch <out> [--random] [--tuned]` (27 / 18 / 24 checks, all pass
+  on 2026-11-27): page 4, page 22h, draw = Python mirror, settings.dat at race start, race,
+  shortened stretch finish, no name entry, daily file and best time, restart, main menu swap
+  back, best time line and ghost on the second daily race.
 
 ## Tools and test (2026-11-27)
 

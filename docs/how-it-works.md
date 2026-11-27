@@ -65,6 +65,44 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   through the items of a page by their number. So a hook in front of the page's input handler
   puts the button, the tenth item, between the tracks and *Starte Meisterschaft* for ↑ and ↓.
 
+## Challenges
+
+- **Menu.** The page *Rennmodus* (menu page 4) is built by the game from a table. After that, the
+  patch turns its item 3, the label *Zwei Spieler*, into the button *Herausforderung* and adds
+  the label again behind the items. So the item numbers of the game's buttons stay the same. The
+  button opens the new menu page 22h. Its texts are 150 to 166 in `text-20.csv`.
+- **The draw.** A seed starts an xorshift32 generator: `x ^= x << 13; x ^= x >> 17;
+  x ^= x << 5`. Five numbers follow, in this order: the track (% 8), the start (% 1000, per
+  mille of the track's path), the length (1000 + % 601 metres, as a share of the path, kept in
+  0.3 to 0.7), the character (% 7) and one of 64 sets of tuning values. `challenge_draw()` in
+  the patcher does the same in Python.
+- **Seeds.** *Zufall* takes `GetTickCount`. *Täglich* takes the day: the days since 1601 from
+  `GetSystemTimeAsFileTime` (UTC), times 9E3779B1h, xor 5EED35h.
+- **Tuning sets.** The patcher draws the 64 sets when it builds the exe, with a fixed seed. It
+  keeps a set when `tune_limit()` gives it the line *Am Limit* or *Hart am Limit*. The gravity
+  stays in 50 % to 200 %.
+- **Path lengths.** The page shows the length in metres before the track is loaded. So the
+  patcher holds the path length of each track, measured in the game with the path length
+  function (0x4437F0): 2222, 1799, 2860, 3401, 1260, 2641, 2906 and 2435 units. 1 unit is 1 m.
+- **Settings.** A draw puts class 5, time trial, the track, player 1's character, the eight
+  tuning values and the 60 FPS switch into the settings object. The player's own values go to
+  a block in the free rest of the `_rwdseg` page (0x885100). They come back when the page
+  *Rennmodus* or the main menu is built. Both writes of `settings.dat` (0x4122BB, 0x403B72) swap
+  the player's values in for the write, so the file never holds a challenge.
+- **Start.** The race start reads the track's `start spline offset` at 0x406481. A challenge
+  gives its own start there. The game places the grid along the path from this one value.
+- **Finish.** The race update tests "3 laps" at 0x406B5A. In a challenge, it adds up the path
+  progress of player 1 instead (each step taken into −0.5 to 0.5, so the wrap at 0 counts
+  right). The race ends at the challenge's length. The lap timer becomes lap 1, because the
+  game takes the time from the sum of the three lap times.
+- **HUD.** The lap line (text 100 at 0x419078) becomes text 105 with the metres:
+  (length − progress) × path length. The minimap gives each vertex of its track line its colour
+  at 0x418C28. A challenge colours the stretch yellow, the finish white and the rest dim.
+- **Records and phantoms.** In a challenge, the result pages' "top five" test (0x412A90) says no,
+  and the best-run copy skips the track's phantom. Both phantom loads (race start, restart) get
+  an empty file name for *Zufall* and `data\Phantom\daily-<day>.mhk2` for *Täglich*. A faster
+  daily run is copied to that file.
+
 ## 60 FPS physics switch
 
 - **Suspension.** The game has a "wheels stiffness" *k* and a "wheels damping" *c*. For every
@@ -124,3 +162,6 @@ patch keeps its records.
   *Standard* is saved as −125, one step below −100 %.
 - **Player name.** A highscore entry that the game never reaches: 50 cc, track 64, rank 5,
   offset 0x2F0C, with the marker `NAME` at 0x2F2C.
+- **Best time of the day.** A highscore entry that the game never reaches: 50 cc, track 60,
+  offset 0x2BAC. It holds the marker `DAYC`, the day (days since 1601, UTC) and the best time
+  of that day (float, seconds).

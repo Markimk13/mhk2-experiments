@@ -9,6 +9,7 @@
 | [200 cc, 250 cc and unlocking](engine-classes.md) | How to unlock every class, the switch *Alles freigeschaltet*, what 200 cc and 250 cc change |
 | [Tuning class](tuning-class.md) | The tuning pages, every value, the presets, your own presets, the lines *Am Limit* and *Top speed* |
 | [Gegner](opponents.md) | The computer karts in every class: *Tempo*, *Verbesserte Gegner*, karts that are stuck |
+| [Challenges](challenges.md) | The page *Herausforderung*: random and daily challenges, the race over a stretch, the phantom of the day |
 | [60 FPS physics switch](60fps-physics.md) | Why the game drives differently at 200 FPS, and what the switch changes |
 | [Phantom karts](phantom-karts.md) | Your best run as the phantom, the name in phantom files |
 | [Good to know](good-to-know.md) | Speed display, limits, things not tested, mhk2_manager, where to report problems |

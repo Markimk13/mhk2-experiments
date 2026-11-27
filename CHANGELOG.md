@@ -3,6 +3,25 @@
 Saves (`settings.dat`) keep their format through all versions; records and phantoms of earlier
 versions stay.
 
+## 1.11
+
+### New
+
+- Menu: *Rennmodus → Herausforderung* (challenge) is a short time trial over one stretch of a
+  track. The game draws the track, the stretch, your driver and hard tuning values.
+  → [Challenges](docs/challenges.md)
+- Challenges: *Täglich* (daily) gives the same challenge to all players on one day. The page
+  shows your best time of the day, and your best run of the day races with you as the phantom.
+- Challenges: the race shows the metres to the finish, and the minimap shows the stretch in
+  colour.
+
+### For developers
+
+- New menu page 22h, texts 105 and 150 to 166, and the best time of the day in an unused
+  highscore entry (offset 0x2BAC, marker `DAYC`). Details:
+  [How it works](docs/how-it-works.md#challenges).
+- The patch section `.mod200` has 28 KB now (24 KB before).
+
 ## 1.10
 
 ### New

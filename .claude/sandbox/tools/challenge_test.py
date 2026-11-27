@@ -125,7 +125,8 @@ def main():
             prog = struct.unpack_from("<f", c, 0x224)[0]
             laps = struct.unpack_from("<i", c, 0x264)[0]
             done = struct.unpack("<f", H.read(h, P.CH_DONE, 4))[0]
-            rows.append((rt, x, y, z, (vx * vx + vy * vy + vz * vz) ** 0.5, prog, done, laps, phase))
+            metres = struct.unpack("<i", H.read(h, P.CH_METRES, 4))[0]
+            rows.append((rt, x, y, z, (vx * vx + vy * vy + vz * vz) ** 0.5, prog, done, laps, phase, metres))
             if shots and rt >= shots[0]:
                 H.shot(os.path.join(a.out, "shot_%g.png" % shots.pop(0)))
         r.write(INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
@@ -143,7 +144,8 @@ def main():
         first = rows[0] if rows else None
         print(f"{len(rows)} frames; start prog {first[5]:.4f} at ({first[1]:.1f}, {first[3]:.1f}); "
               f"last: prog {rows[-1][5]:.4f} done {rows[-1][6]:.4f} of {a.length}; "
-              + (f"FINISHED at {finished:.2f} s" if finished is not None else "not finished"))
+              + (f"FINISHED at {finished:.2f} s" if finished is not None else "not finished")
+              + f"; metres shown first {next((row[9] for row in rows if row[0] > 0.1), 0)}")
     finally:
         r.write(INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
         H.kernel32.TerminateProcess(h, 0)

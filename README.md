@@ -1,4 +1,4 @@
-# Moorhuhn Kart 2 – 200 cc, 250 cc, a tuning class, better computer karts, 60 FPS physics, own phantoms
+# Moorhuhn Kart 2 – 200 cc, 250 cc, a tuning class, better computer karts, daily challenges, 60 FPS physics, own phantoms
 
 A fan patch for **Moorhuhn Kart 2 XXL**, the German version V1.0 from March 2004. It adds:
 
@@ -6,17 +6,18 @@ A fan patch for **Moorhuhn Kart 2 XXL**, the German version V1.0 from March 2004
 - **Tuning**: a sixth class. You set the kart and the gravity yourself in the game.
 - **Gegner** (opponents): a page that sets the pace of the computer karts in every class. It
   also gives them a better way to drive.
+- **Herausforderung** (challenge): a short race over one stretch of a track, with a random kart.
+  The daily challenge is the same for all players on the same day.
 - **60-FPS-Fahrphysik**: a switch for high frame rates. The kart drives at 200 FPS as it does at
   60 FPS.
 - **Alles freigeschaltet**: a switch that opens every class, championship and track.
 - **Own phantoms**: the game races you against your own best time trial. You need no helper
   program.
 
-> **Kurz auf Deutsch:** Ein Fan-Patch für Moorhuhn Kart 2 XXL. Er bringt zwei neue
-> Leistungsklassen (200 cc, 250 cc) und eine Tuning-Klasse mit eigenen Fahrwerten und Vorlagen.
-> Die Seite *Gegner* stellt Tempo und bessere Computer-Karts in jeder Klasse ein. Dazu kommen
-> die Schalter *60-FPS-Fahrphysik* und *Alles freigeschaltet* und eigene Phantom-Karts ohne
-> Zusatzprogramm.
+> **Kurz auf Deutsch:** Ein Fan-Patch für Moorhuhn Kart 2 XXL: die Klassen 200 cc und 250 cc,
+> eine Tuning-Klasse mit eigenen Fahrwerten, die Seite *Gegner* für die Computer-Karts, kurze
+> Rennen unter *Rennmodus → Herausforderung* (auch täglich, mit Phantom des Tages), die Schalter
+> *60-FPS-Fahrphysik* und *Alles freigeschaltet* und eigene Phantom-Karts.
 > Installation: das ZIP `…-de.zip` aus den [Releases](../../releases) in den Spielordner
 > entpacken. Vorher `MHK2-XXL.exe` sichern. Alle Klassen öffnet der Schalter
 > *Einstellungen → Alles freigeschaltet*. Der Patch ist für die deutsche V1.0 von der
@@ -124,6 +125,12 @@ line that a player drove. → [Gegner](docs/opponents.md)
 
 ![page Gegner](screenshots/13-opponents.png)
 
+**Challenges.** *Rennmodus → Herausforderung* draws a short race: a stretch of a track, a driver
+and tuning values. *Täglich* (daily) gives the same challenge to all players on one day, and
+your best run of the day becomes the phantom. → [Challenges](docs/challenges.md)
+
+![challenge page](screenshots/18-challenge-page.png)
+
 **60 FPS physics switch.** *Einstellungen → 60-FPS-Fahrphysik*. At high frame rates, the original
 game makes the kart slow and slippery. With the switch on, the kart drives at every frame rate
 as it does at 60 FPS. → [60 FPS physics switch](docs/60fps-physics.md)
@@ -143,6 +150,7 @@ that you typed. → [Good to know](docs/good-to-know.md)
 | [200 cc, 250 cc and unlocking](docs/engine-classes.md) | How to unlock every class, the switch *Alles freigeschaltet*, what 200 cc and 250 cc change |
 | [Tuning class](docs/tuning-class.md) | The tuning pages, every value, the presets, your own presets, the lines *Am Limit* and *Top speed* |
 | [Gegner](docs/opponents.md) | The computer karts in every class: *Tempo*, *Verbesserte Gegner*, karts that are stuck |
+| [Challenges](docs/challenges.md) | The page *Herausforderung*: random and daily challenges, the race over a stretch, the phantom of the day |
 | [60 FPS physics switch](docs/60fps-physics.md) | Why the game drives differently at 200 FPS, and what the switch changes |
 | [Phantom karts](docs/phantom-karts.md) | Your best run as the phantom, the name in phantom files |
 | [Good to know](docs/good-to-know.md) | Speed display, limits, things not tested, mhk2_manager, where to report problems |
