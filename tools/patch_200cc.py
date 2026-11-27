@@ -386,6 +386,24 @@ CAR_MANAGER = 0x005E8520        # CarManager*; +10h / +14h: begin and end of its
 CAR_VELOCITY = 0x2B4
 HUD_SPEED_Y = (50.0, 80.0)      # without / with the position line
 TXT_SPEED = 209
+# Challenges (work in progress, 2026-11-27): a time trial over a stretch of a track. A runtime
+# block in the free rest of the _rwdseg page (0x885008..0x885FFF is mapped, writable and unused)
+# holds the challenge; for now a test tool writes it before the race. When "active" is set:
+# the grid stands at "start" (path progress, instead of the track's "start spline offset" read at
+# 0x406481), the race ends when player 1 has covered "length" of progress (the lap test at
+# 0x406B5A), "Runde %d/3" becomes the metres left, and the minimap shows the stretch.
+CH_DATA = 0x00885100
+CH_ACTIVE, CH_START, CH_LEN, CH_DONE, CH_LAST, CH_LO, CH_HI = (CH_DATA + 4 * k for k in range(7))
+CH_BAND = 0.008                 # progress around the finish drawn in its colour
+# ARGB. Not red or green: the kart dots on the minimap are red (player 1), blue and green.
+CH_COLORS = {"rest": 0x60C0C0C0, "stretch": 0xFFFFD040, "finish": 0xFFFFFFFF}
+CH_GRID_HOOK, CH_GRID_BACK = 0x00406481, 0x00406488
+CH_FINISH_HOOK, CH_FINISH_GO, CH_FINISH_NOT = 0x00406B5A, 0x00406B67, 0x00406DD8
+CH_LAPID_HOOK, CH_LAPID_BACK = 0x00419078, 0x0041907E
+CH_LAPNUM_HOOK, CH_LAPNUM_BACK = 0x00419094, 0x00419099
+CH_MAP_HOOK, CH_MAP_BACK = 0x00418C28, 0x00418C30
+PATH_LENGTH = 0x004437F0        # TrackPath::Length (thiscall, ecx = [CarManager+1Ch]), st0 = mean of the edge splines
+TXT_CH_LEFT = 105               # "Noch %d m" in place of "Runde %d/3" (text 100)
 TXT_TOP_PAUSE = (207, 208)      # on the pause page: behind the values (tuning class), below the class line (others)
 
 
@@ -736,6 +754,7 @@ TEXTS = {
         "first": "erste", "second": "zweite",
         "tuning_unlocked": "Du hast die Tuning-Klasse freigeschaltet!",
         "opp": "Gegner", "opp_row": "Tempo", "std": "Standard", "class": "Klasse", "top": "Top speed:", "top_about": "ca. %d km/h",
+        "ch_left": "Noch %d m",
         "new_row": "Verbesserte Gegner", "new_short": "verbessert",
         "new_info": "Wie viele der sechs Computer-Karts fahren die<br>gelernte Linie? Sie bremsen vor Kurven und"
                     "<br>kommen seltener von der Strecke ab. 0: wie im Spiel",
@@ -781,6 +800,7 @@ TEXTS = {
         "first": "first", "second": "second",
         "tuning_unlocked": "You have unlocked the tuning class!",
         "opp": "Opponents", "opp_row": "Pace", "std": "default", "class": "Class", "top": "Top speed:", "top_about": "about %d km/h",
+        "ch_left": "%d m to go",
         "new_row": "Improved opponents", "new_short": "improved",
         "new_info": "How many of the six computer karts drive the<br>learned line? They brake before corners and"
                     "<br>leave the track less often. 0: as in the game",
@@ -861,6 +881,7 @@ def text_overrides(lang="de", version=None, lines_only=False):
         (TXT_TOP, "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (TXT_TOP_PAUSE[0], "<scale 0.5><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (TXT_SPEED, "<scale 0.75>%d km/h</scale>"),
+        (TXT_CH_LEFT, "<scale 0.75>%s</scale>" % t["ch_left"]),
         (TXT_TOP_PAUSE[1], "<scale 0.6><br>%s %s</scale>" % (TXT_GROUP % t["top"], t["top_about"])),
         (272, t["load"]), (273, t["save"]), (274, t["rename"]), (275, t["delete"]),
         (276, title % t["rename_title"]),
@@ -3941,6 +3962,170 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8D 4C 24 28", "lea         ecx,[esp+28h]")
     a.jmp(HUD_SPEED_BACK)
 
+    # -- challenges (see CH_DATA) ---------------------------------------------
+    # x87 or plain ops on [ebp+disp] (ebp = tune_T): op = opcode hex, r = ModRM reg field.
+    def t_mem(op, r, target, text):
+        disp = tdisp(target)
+        a.raw("%s %02X %s" % (op, 0x85 | r << 3, _le(disp)), text % ("[ebp+%08Xh]" % disp))
+
+    def t_active():                      # flags: equal = no challenge
+        disp = tdisp(CH_ACTIVE)
+        a.raw("83 BD %s 00" % _le(disp), "cmp         dword ptr [ebp+%08Xh],0" % disp)
+
+    def fpu_flags(mask):                 # after an x87 compare: test the C0 (1) / C3 (40h) bits
+        a.raw("DF E0", "fnstsw      ax")
+        a.raw("F6 C4 %02X" % mask, "test        ah,%s" % _imm(mask))
+
+    # Race start, the grid (fn 0x4061E0): eax = LevelSettings; the value goes to [esp+18h].
+    a.label("ch_grid")
+    a.raw("55", "push        ebp")
+    a.raw("51", "push        ecx")
+    a.call("tune_base")
+    t_active()
+    a.jcc_short("je", "ch_grid_stock")
+    t_mem("8B", 0, CH_START, "mov         eax,dword ptr %s")
+    t_mem("89", 0, CH_LAST, "mov         dword ptr %s,eax")
+    a.raw("33 C9", "xor         ecx,ecx")
+    t_mem("89", 1, CH_DONE, "mov         dword ptr %s,ecx")
+    t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
+    a.raw("D9 C0", "fld         st(0)")
+    t_mem("D8", 4, "ch_band", "fsub        dword ptr %s")
+    t_mem("D9", 3, CH_LO, "fstp        dword ptr %s")
+    t_mem("D8", 0, "ch_band", "fadd        dword ptr %s")
+    t_mem("D9", 3, CH_HI, "fstp        dword ptr %s")
+    a.jmp_short("ch_grid_store")
+    a.label("ch_grid_stock")
+    a.raw("8B 40 50", "mov         eax,dword ptr [eax+50h]")   # displaced: "start spline offset"
+    a.label("ch_grid_store")
+    a.raw("59", "pop         ecx")
+    a.raw("5D", "pop         ebp")
+    a.raw("89 44 24 18", "mov         dword ptr [esp+18h],eax")
+    a.jmp(CH_GRID_BACK)
+
+    # Race update, per car in car state 2 (fn 0x4067B0): esi = car, ebx = its index; eax, ecx,
+    # edx are free. Stock: finished at 3 laps. Challenge: car 0 sums its progress steps (each
+    # taken into -0.5..0.5, so the wrap at 0 and set-backs count right) and is through at "length".
+    a.label("ch_finish")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.jcc_short("je", "ch_finish_stock")
+    a.raw("85 DB", "test        ebx,ebx")
+    a.jcc_short("jne", "ch_finish_not")
+    a.raw("D9 86 24 02 00 00", "fld         dword ptr [esi+00000224h]")
+    a.raw("D9 C0", "fld         st(0)")
+    t_mem("D8", 4, CH_LAST, "fsub        dword ptr %s")
+    a.raw("D9 C9", "fxch        st(1)")
+    t_mem("D9", 3, CH_LAST, "fstp        dword ptr %s")
+    t_mem("D8", 2, "ch_half", "fcom        dword ptr %s")
+    fpu_flags(0x41)
+    a.jcc_short("jne", "ch_finish_up")           # step <= 0.5
+    t_mem("D8", 4, "ch_one", "fsub        dword ptr %s")
+    a.label("ch_finish_up")
+    t_mem("D8", 2, "ch_mhalf", "fcom        dword ptr %s")
+    fpu_flags(0x01)
+    a.jcc_short("je", "ch_finish_sum")           # step >= -0.5
+    t_mem("D8", 0, "ch_one", "fadd        dword ptr %s")
+    a.label("ch_finish_sum")
+    t_mem("D8", 0, CH_DONE, "fadd        dword ptr %s")
+    t_mem("D9", 2, CH_DONE, "fst         dword ptr %s")
+    t_mem("D8", 3, CH_LEN, "fcomp       dword ptr %s")
+    fpu_flags(0x01)
+    a.jcc_short("jne", "ch_finish_not")          # done < length
+    a.raw("5D", "pop         ebp")
+    a.jmp(CH_FINISH_GO)
+    a.label("ch_finish_not")
+    a.raw("5D", "pop         ebp")
+    a.jmp(CH_FINISH_NOT)
+    a.label("ch_finish_stock")
+    a.raw("5D", "pop         ebp")
+    a.raw("83 BE 64 02 00 00 03", "cmp         dword ptr [esi+00000264h],3")   # displaced
+    a.jcc_near("jl", CH_FINISH_NOT)
+    a.jmp(CH_FINISH_GO)
+
+    # Hud::Draw, the lap line: text 100 or, in a challenge, TXT_CH_LEFT. edx = the string, eax =
+    # the font, ecx free.
+    a.label("ch_lapid")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.raw("5D", "pop         ebp")
+    a.jcc_short("jne", "ch_lapid_ch")
+    a.raw("6A 64", "push        64h")                # displaced
+    a.jmp_short("ch_lapid_rest")
+    a.label("ch_lapid_ch")
+    a.raw("6A %02X" % TXT_CH_LEFT, "push        %s" % _imm(TXT_CH_LEFT))
+    a.label("ch_lapid_rest")
+    a.raw("52", "push        edx")                   # displaced
+    a.raw("89 78 34", "mov         dword ptr [eax+34h],edi")
+    a.jmp(CH_LAPID_BACK)
+
+    # ... and its number: the lap, or (length - done) * path length in metres (1 unit = 1 m).
+    # ecx = the player, eax = the text: both kept.
+    a.label("ch_lapnum")
+    a.raw("8B 54 8E 20", "mov         edx,dword ptr [esi+ecx*4+20h]")   # displaced
+    a.raw("42", "inc         edx")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.jcc_short("je", "ch_lapnum_done")
+    a.raw("50", "push        eax")
+    a.raw("51", "push        ecx")
+    t_mov("eax", CAR_MANAGER)
+    a.raw("33 D2", "xor         edx,edx")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_short("je", "ch_lapnum_pop")
+    a.raw("8B 48 1C", "mov         ecx,dword ptr [eax+1Ch]")
+    a.call(PATH_LENGTH)
+    t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
+    t_mem("D8", 4, CH_DONE, "fsub        dword ptr %s")
+    a.raw("DE C9", "fmulp       st(1),st")
+    a.raw("52", "push        edx")
+    a.raw("DB 1C 24", "fistp       dword ptr [esp]")
+    a.raw("5A", "pop         edx")
+    a.raw("85 D2", "test        edx,edx")
+    a.jcc_short("jge", "ch_lapnum_pop")
+    a.raw("33 D2", "xor         edx,edx")
+    a.label("ch_lapnum_pop")
+    a.raw("59", "pop         ecx")
+    a.raw("58", "pop         eax")
+    a.label("ch_lapnum_done")
+    a.raw("5D", "pop         ebp")
+    a.jmp(CH_LAPNUM_BACK)
+
+    # Hud::DisplayTrack, the colour of track-line vertex k: eax = the vertex array, ecx = 1Ch * (k + 1),
+    # [esp+10h] = k / 2 (the path point), st0 = the number of points; edx is free. In a challenge
+    # the point's place (k / 2) / n behind the start picks the colour: stretch, finish, rest.
+    a.label("ch_mapcol")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    a.raw("BA " + _le(0xFFC0C0C0), "mov         edx,%s" % _imm(0xFFC0C0C0))   # the stock colour
+    t_active()
+    a.jcc_short("je", "ch_mapcol_store")
+    a.raw("50", "push        eax")
+    a.raw("DB 44 24 18", "fild        dword ptr [esp+18h]")
+    a.raw("D8 F1", "fdiv        st,st(1)")
+    t_mem("D8", 4, CH_START, "fsub        dword ptr %s")
+    a.raw("D9 E4", "ftst")
+    fpu_flags(0x01)
+    a.jcc_short("je", "ch_mapcol_pos")
+    t_mem("D8", 0, "ch_one", "fadd        dword ptr %s")
+    a.label("ch_mapcol_pos")
+    for color, bound, mask in (("rest", CH_HI, 0x41),          # beyond the finish band
+                               ("finish", CH_LO, 0x01)):       # in the finish band
+        a.raw("BA " + _le(CH_COLORS[color]), "mov         edx,%s" % _imm(CH_COLORS[color]))
+        t_mem("D8", 2, bound, "fcom        dword ptr %s")
+        fpu_flags(mask)
+        a.jcc_short("je", "ch_mapcol_pop")
+    a.raw("BA " + _le(CH_COLORS["stretch"]), "mov         edx,%s" % _imm(CH_COLORS["stretch"]))
+    a.label("ch_mapcol_pop")
+    a.raw("DD D8", "fstp        st(0)")
+    a.raw("58", "pop         eax")
+    a.label("ch_mapcol_store")
+    a.raw("89 54 01 F4", "mov         dword ptr [ecx+eax-0Ch],edx")
+    a.raw("5D", "pop         ebp")
+    a.jmp(CH_MAP_BACK)
+
     # Which row does an item of the current page show? eax = item, esi = menu.
     # Returns eax = the row (0 "Vorlage", 1..9 the values) or -1. Clobbers ecx, edx.
     a.label("tune_item_row")
@@ -5018,6 +5203,14 @@ def build_payload(base, factors, pulls, known=None, version=None):
            "top speed: " + ", ".join("%s %g" % (n, top_const(n)) for n in TOP_CONSTS))
     a.label("hud_speed_y")
     a.data(struct.pack("<2f", *HUD_SPEED_Y), "float %g, %g: y of the speed in the race without / with the position" % HUD_SPEED_Y)
+    a.label("ch_band")
+    a.data(struct.pack("<f", CH_BAND), "float %g: challenge, finish band on the minimap" % CH_BAND)
+    a.label("ch_one")
+    a.data(struct.pack("<f", 1.0), "float 1")
+    a.label("ch_half")
+    a.data(struct.pack("<f", 0.5), "float 0.5")
+    a.label("ch_mhalf")
+    a.data(struct.pack("<f", -0.5), "float -0.5")
     a.label("top_chars")
     a.data(b"".join(struct.pack("<2f", m, TOP_K * gd) for m, gd in TOP_CHARS),
            "top speed: mass and rpm per unit/s in top gear of the seven characters")
@@ -5176,6 +5369,12 @@ def site_patches(labels):
     # pause page: class, switch, tuning preset and values above the stock items, which move down
     jump(0x004142FC, "C7 86 44 01 00 00 FF FF FF FF", "pause_info", "pause page: class, switch, tuning values")
     jump(HUD_SPEED_HOOK, "57 8D 4C 24 28", "hud_speed", "race: the speed below lap and position")
+    jump(CH_GRID_HOOK, "8B 40 50 89 44 24 18", "ch_grid", "challenge: the grid at the challenge's start")
+    jump(CH_FINISH_HOOK, "83 BE 64 02 00 00 03 0F 8C 71 02 00 00", "ch_finish",
+         "challenge: finished after the challenge's stretch instead of 3 laps")
+    jump(CH_LAPID_HOOK, "6A 64 52 89 78 34", "ch_lapid", "challenge: metres left instead of the lap (text)")
+    jump(CH_LAPNUM_HOOK, "8B 54 8E 20 42", "ch_lapnum", "challenge: metres left instead of the lap (number)")
+    jump(CH_MAP_HOOK, "C7 44 01 F4 C0 C0 C0 FF", "ch_mapcol", "challenge: the stretch in colour on the minimap")
     for row, y in enumerate(PAUSE_Y_STOCK[:5]):
         slot = "C7 44 24 %02X " % (0x30 + 4 * row)
         data(0x00413E92 + 8 * row, slot + _le(y), slot + _le(y + PAUSE_Y_SHIFT), "pause page: item %d moves down" % row)
