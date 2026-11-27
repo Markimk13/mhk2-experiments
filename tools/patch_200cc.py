@@ -403,6 +403,16 @@ CH_LAPID_HOOK, CH_LAPID_BACK = 0x00419078, 0x0041907E
 CH_LAPNUM_HOOK, CH_LAPNUM_BACK = 0x00419094, 0x00419099
 CH_MAP_HOOK, CH_MAP_BACK = 0x00418C28, 0x00418C30
 PATH_LENGTH = 0x004437F0        # TrackPath::Length (thiscall, ecx = [CarManager+1Ch]), st0 = mean of the edge splines
+# A challenge is no time trial for the records: no highscore (the result pages ask 0x412A90,
+# thiscall, 3 stack arguments, al = "top five"), no promotion to the track's phantom, and no
+# phantom of the track at the start (both ghost loads format the file name with 0x494EB0 into a
+# std::string; the challenge formats it again: an empty name, so the load finds no file).
+TOP_FIVE = 0x00412A90
+TOP_FIVE_CALLS = (0x00421A2F, 0x00422398)
+STR_FORMAT = 0x00494EB0         # cdecl (std::string* out, const char* format, ...)
+CH_GHOST_HOOKS = ((0x00409B44, "83 C4 10 C7 84 24 EC 02 00 00 2A 00 00 00", 0x294),   # race start
+                  (0x00407304, "83 C4 10 C7 84 24 CC 00 00 00 06 00 00 00", 0x38))    # restart
+# hook, displaced bytes, the string's offset from esp after the displaced "add esp,10h"
 TXT_CH_LEFT = 105               # "Noch %d m" in place of "Runde %d/3" (text 100)
 TXT_TOP_PAUSE = (207, 208)      # on the pause page: behind the values (tuning class), below the class line (others)
 
@@ -4126,6 +4136,37 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("5D", "pop         ebp")
     a.jmp(CH_MAP_BACK)
 
+    # The result pages' "top five?" (in place of the call): never in a challenge.
+    a.label("ch_top5")
+    a.raw("55", "push        ebp")
+    a.call("tune_base")
+    t_active()
+    a.raw("5D", "pop         ebp")
+    a.jcc_near("je", TOP_FIVE)
+    a.raw("32 C0", "xor         al,al")
+    a.raw("C2 0C 00", "ret         0Ch")
+
+    # The ghost's file name at race start and restart: in a challenge, an empty name.
+    for k, (va, orig, str_off) in enumerate(CH_GHOST_HOOKS):
+        a.label("ch_ghost%d" % k)
+        raw = bytes.fromhex(orig)
+        disp, value = struct.unpack_from("<II", raw, 6)
+        a.raw("83 C4 10", "add         esp,10h")                                   # displaced
+        a.raw(raw[3:].hex(" "), "mov         dword ptr [esp+%08Xh],%s" % (disp, _imm(value)))
+        a.raw("60", "pushad")
+        a.call("tune_base")
+        t_active()
+        a.jcc_short("je", "ch_ghost%d_done" % k)
+        t_lea("eax", "ch_no_file")
+        a.raw("50", "push        eax")
+        a.raw("8D 84 24 " + _le(str_off + 0x24), "lea         eax,[esp+%08Xh]" % (str_off + 0x24))
+        a.raw("50", "push        eax")
+        a.call(STR_FORMAT)
+        a.raw("83 C4 08", "add         esp,8")
+        a.label("ch_ghost%d_done" % k)
+        a.raw("61", "popad")
+        a.jmp(va + len(raw))
+
     # Which row does an item of the current page show? eax = item, esi = menu.
     # Returns eax = the row (0 "Vorlage", 1..9 the values) or -1. Clobbers ecx, edx.
     a.label("tune_item_row")
@@ -4990,6 +5031,9 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("FF 74 24 04", "push        dword ptr [esp+4]")
     a.call(FILE_CLOSE)
     a.raw("60", "pushad")
+    a.call("tune_base")
+    t_active()
+    a.jcc_near("jne", "phantom_promote_done")     # a challenge run is no record
     pic_base("promote_pc")
     a.call(GP_GET)
     a.raw("8B D8", "mov         ebx,eax")
@@ -5211,6 +5255,8 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<f", 0.5), "float 0.5")
     a.label("ch_mhalf")
     a.data(struct.pack("<f", -0.5), "float -0.5")
+    a.label("ch_no_file")
+    a.data(b"\0", "empty string: the ghost of a challenge")
     a.label("top_chars")
     a.data(b"".join(struct.pack("<2f", m, TOP_K * gd) for m, gd in TOP_CHARS),
            "top speed: mass and rpm per unit/s in top gear of the seven characters")
@@ -5375,6 +5421,10 @@ def site_patches(labels):
     jump(CH_LAPID_HOOK, "6A 64 52 89 78 34", "ch_lapid", "challenge: metres left instead of the lap (text)")
     jump(CH_LAPNUM_HOOK, "8B 54 8E 20 42", "ch_lapnum", "challenge: metres left instead of the lap (number)")
     jump(CH_MAP_HOOK, "C7 44 01 F4 C0 C0 C0 FF", "ch_mapcol", "challenge: the stretch in colour on the minimap")
+    for va in TOP_FIVE_CALLS:
+        retarget(va, TOP_FIVE, "ch_top5", "challenge: no highscore entry")
+    for k, (va, orig, _) in enumerate(CH_GHOST_HOOKS):
+        jump(va, orig, "ch_ghost%d" % k, "challenge: no phantom of the track")
     for row, y in enumerate(PAUSE_Y_STOCK[:5]):
         slot = "C7 44 24 %02X " % (0x30 + 4 * row)
         data(0x00413E92 + 8 * row, slot + _le(y), slot + _le(y + PAUSE_Y_SHIFT), "pause page: item %d moves down" % row)

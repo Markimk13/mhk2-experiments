@@ -98,11 +98,14 @@ texture `Boden_Start_UV` of level.bsp; there is no object to move).
   wrap at 0) finished at 4.38 s with done 0.0499; start 0.25 length 0.03 at 3.46 s. The HUD counted
   down ("Noch 102 m" ... "Noch 0 m"), then the game showed its finish camera. Start 0.5 length 0.4
   showed "Noch 866 m" (path about 2200 units) and the stretch in colour on the minimap.
-- **A challenge finish writes the normal record and phantom**: the 4.4 s run became the 150 cc
-  record of track 1, and the patch made it `phantom-3-01.mhk2` (590 bytes). The next run showed that
-  ghost as a red, see-through band on the road. Must be fixed before a release: challenge times and
-  phantoms in their own place. Restore after such tests: `fixtures\settings.dat`,
-  `fixtures\Phantom\` (done for game, game2, game3).
+- **A challenge finish wrote the normal record and phantom** (first build): the 4.4 s run became
+  the 150 cc record of track 1 and the patch made it `phantom-3-01.mhk2`; the next run showed that
+  ghost as a red, see-through band on the road. **Fixed** (second commit): `ch_top5` answers "no"
+  for both calls of the top-five check 0x412A90 (0x421A2F, 0x422398), so "Weiter" leads to the
+  result list (0Fh), not to the name entry; `phantom_promote` copies nothing in a challenge; both
+  ghost loads (race start 0x409B44, restart 0x407304) format the file name again as an empty
+  string, so no phantom loads (gp+54h stays 0). Tested: record and phantom file unchanged.
+  Restore after tests that finish: `fixtures\settings.dat`, `fixtures\Phantom\`.
 - Pictures with three games open catch whatever window is on top (the capture takes the screen
   area); take pictures with one game at a time.
 - Short stretches are only a few path points on the minimap: 0.03 of track 1 is about 4 points.

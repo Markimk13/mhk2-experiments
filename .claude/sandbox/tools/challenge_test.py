@@ -24,6 +24,32 @@ from drive import INJECT, f32, init_count
 import patch_200cc as P
 
 
+NAME_INJ = 0x00884F50          # the test builds' one-shot "menu select" of the result pages (prep_ghost.py)
+
+
+def result_weiter(h, r, timeout=30):
+    """Wait for the result overlay (page 0Eh, race phase 5), press 'Weiter', return the next page."""
+    def overlay():
+        state = H.u32(h, H.u32(h, 0x5E851C) + 4)
+        return state, H.u32(h, state + 0x144)
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        state, m = overlay()
+        if H.u32(h, state + 0x118) == 5 and m and H.u32(h, m + 0x140) == 0x0E:
+            break
+        time.sleep(0.2)
+    else:
+        return None
+    time.sleep(0.5)
+    for _ in range(5):
+        r.write(m + 0x148, struct.pack("<i", 0))
+        r.write(NAME_INJ, struct.pack("<f", 1.0))
+        time.sleep(0.8)
+        if H.u32(h, m + 0x140) != 0x0E:
+            break
+    return H.u32(h, m + 0x140)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folder")
@@ -36,6 +62,9 @@ def main():
     ap.add_argument("--exe", default="ch60.exe")
     ap.add_argument("--shots", default="1")
     ap.add_argument("--off", action="store_true", help="leave the challenge off (stock race, for comparison)")
+    ap.add_argument("--weiter", action="store_true",
+                    help="after the finish press 'Weiter' on the result overlay and print the next page "
+                         "(0Fh result list, 13h name entry for a highscore)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     shots = sorted(float(s) for s in a.shots.split(",") if s)
@@ -100,9 +129,13 @@ def main():
             if shots and rt >= shots[0]:
                 H.shot(os.path.join(a.out, "shot_%g.png" % shots.pop(0)))
         r.write(INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
+        gp = H.u32(h, P.GP_POINTER)
+        print("ghost loaded (gp+54h):", H.read(h, gp + 0x54, 1)[0])
         if finished is not None:
             time.sleep(2.0)
             H.shot(os.path.join(a.out, "shot_end.png"))
+            if a.weiter:
+                print("result page after 'Weiter':", hex(result_weiter(h, r) or 0))
         with open(os.path.join(a.out, "run.csv"), "w") as f:
             f.write("t,x,y,z,speed,prog,done,laps,phase\n")
             for row in rows:
