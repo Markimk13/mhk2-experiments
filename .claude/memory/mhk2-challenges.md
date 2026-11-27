@@ -211,3 +211,76 @@ and (only *Täglich*) the best time of the day; *Weiter* races against the best-
   time: Hud::Draw formats [Hud + player*4 + 18h] (best lap) with 0x418090 at 0x41965C;
   `ch_hudbest` puts the day's best there (daily, marker and day match). Hud+10h / +14h are the
   other two times. Flow tests: daily 36, random 28 checks.
+
+## Plan: a power can in every challenge (user, 2026-11-27; not started, waits for the #32 session)
+
+The user wants it simple: every challenge gives one *Powerdose* (power can), no rule draw.
+Traced so far (read only):
+- **The held power-up** is car+270h (-1 none; 7 = turbo can, the values of car+274h). The car
+  fires it in Car::Update (0x4330FA..0x433129): controller [car+1F4h] with byte +22h set (fire
+  key), car state 2, car+270h >= 0 -> `ActivatePowerUp(car+270h)` 0x42D320, then car+270h = -1.
+  Nothing there checks the race mode, so a time trial should fire it too.
+- **The phantom replay** (0x433203..0x43325D) writes a word of each sample into car+270h and
+  fires it the same way: a phantom shows where its run fired the can. Check that the recording
+  stores it for the player too.
+
+Steps:
+1. Give the can: in `ch_finish` (it runs every frame for car 0 in car state 2), set car+270h = 7
+   once, with a flag that `ch_grid` clears (race start and *Rennen wiederholen*). Writing it in
+   the grid hook may be too early if the car reset clears car+270h after it; check where 0x42FAC4
+   / 0x436EF0 (the lap resets) clear the power-up.
+2. HUD: check that the icon top left shows the can (in a time trial it shows the crossed-out
+   circle; find whether that is "no power-up" or "time trial").
+3. Physics: fire the can on all 64 challenge sets on a straight (`pu_run.py`-like). The can's
+   accel factor 5.0 stacks with the set's pull; with pull > 1 the stock classes overshot by 10
+   units/s. No set may blow up (runaway check as in the races). Drop or change sets that do;
+   that changes `challenge_sets()` and so every draw: give the draw a version then.
+4. Texts: the challenge page and the pause page say that the race has a *Powerdose*; docs.
+5. Tests: `challenge_flow.py` checks car+270h = 7 after the start and fires it (find a test
+   input for the fire key, or call 0x42D320 remotely), then car+274h = 7 and car+270h = -1.
+
+## Plan: medals (bronze, silver, gold; not started)
+
+Goal: a target time for every draw, also for random seeds (2^32 of them, so nothing can be
+measured per seed). The patcher ships pace tables measured in the sandbox; the game adds up the
+stretch from them at the draw.
+
+1. **Pace tool** (`stretch_pace.py`): a computer kart with the learned driver (*Verbesserte
+   Gegner*) drives with one challenge set on one track, alone, two laps. It records the race
+   time at path progress k/64 on the flying lap. 64 sets x 8 tracks = 512 runs, about 3 h on
+   three game folders.
+2. **Standing start**: the stretch starts from standing. Measure per set the time lost against
+   a flying pass (start at 3 places per track, compare with the table). One value per set.
+3. **Table size**: full curves are 512 x 64 x 2 bytes = 64 KB. Smaller: one curve shape per
+   track (64 points) and one lap time per track and set, about 2.2 KB. Use the small form if
+   step 4 shows under 2 % error; else one shape per group of sets (by top speed).
+4. **Check**: the computer kart drives 30 real challenges from their start (the challenge code,
+   with the kart of player 1 given to the AI); compare with the estimate.
+5. **The can**: the reference kart drives without it. Measure per set what one well-placed can
+   saves (fire at the start of the longest straight of the stretch, or at the start), and make
+   gold need it.
+6. **Medal times**: gold / silver / bronze = factors on the reference (start: 0.97 / 1.0 / 1.1),
+   set after the user drove some daily challenges. Python mirror `challenge_medals(seed)` for
+   the tests.
+7. **Display**: the challenge page and the pause page show the three times; the result shows the
+   medal won; the daily best keeps its medal. Maybe a medal icon later (needs a picture in an
+   archive).
+- **Built (2026-11-27): the power can.** `ch_finish` sets car+270h = 7 on the first frame in car
+  state 2 (flag CH_CAN = CH_DATA+38h, cleared by `ch_grid`, so the restart gives a new one). Not
+  on the challenge page or the pause page (user: a static feature of the mode). Test: the flow
+  writes the controller's fire byte [car+1F4h]+22h in a loop until car+274h = 7. Physics check:
+  `ch_can_check.py` races the 64 sets (8 per track, 60 s, six computer karts that get a new can
+  whenever they hold none; `ai_race.py --cans`, `tune_races.py --cans`). Results below.
+- **Can races (2026-11-27, `runs\ch_can`):** 64 sets x 60 s, 833 cans fired: no blow-up on the
+  ground (fastest 133 units/s, about 480 km/h, with can and slope). Two "runaways", both on Sumpf
+  (sets 55 and 63), were karts falling out of the world, not physics: reruns of these two sets
+  gave a fall in 3 of 5 races with cans, in 0 of 6 without. Set 63 crested a rise at x 30 z 240
+  at 107..116 units/s and flew over the course's edge; set 55 (Motorkraft 525 %, Gewicht 25 %)
+  flipped and drove off a ledge at x -275 z 135 at 40 units/s. The computer karts came back after
+  7..9 s through the patch's watch (computer karts only). **A player who leaves the world falls
+  until *Neustart*** (pause page): no reset for the player outside the drop boxes. Not changed;
+  the tuning class has the same risk without a can. Options if it matters: a challenge reset when
+  y drops 30 units below the road, or drop such sets.
+- HUD: the icon top left shows the can while held (picture `runs\challenge\flow6_random\4_race.png`).
+  Flow tests: daily 39, random 31, tuned 39 checks (the test fires the can in both runs: it does
+  not steer, and a draw in a bend finished only with the can).

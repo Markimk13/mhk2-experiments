@@ -237,8 +237,22 @@ def run(g, out, daily):
     while f32(g, cm + 0x20) <= 0.0 and time.time() - t0 < 60:
         time.sleep(0.05)
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 1.0))
-    time.sleep(1.0)
+    time.sleep(0.3)
     g.shot(os.path.join(out, "4_race.png"))
+    # the power can of every challenge: held after the start, fired with the fire key (the
+    # game's input code writes the byte every frame, so the test writes it in a tight loop)
+    car = g.car()
+    held, active = struct.unpack("<2i", g.read(car + P.CAR_HELD_POWERUP, 8))
+    check("the player holds a power can after the start", held == P.POWERUP_CAN, "held %d, active %d" % (held, active))
+    ctl = g.u32(car + 0x1F4)
+    t0 = time.time()
+    while i32(g, car + P.CAR_HELD_POWERUP + 4) != P.POWERUP_CAN and time.time() - t0 < 3.0:
+        for _ in range(50):
+            g.write(ctl + 0x22, b"\x01")         # the controller's fire key (Car::Update 0x433113)
+    held, active = struct.unpack("<2i", g.read(car + P.CAR_HELD_POWERUP, 8))
+    check("the fire key fires the can (active 7, held none)", (held, active) == (-1, P.POWERUP_CAN),
+          "held %d, active %d" % (held, active))
+    g.shot(os.path.join(out, "4a_can.png"))
     ok = g.wait_overlay(0x0E, timeout=40)
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
     check("the stretch is finished", ok)
@@ -287,7 +301,15 @@ def run(g, out, daily):
     t0 = time.time()
     while g.race_time() <= 0.0 and time.time() - t0 < 30:
         time.sleep(0.05)
+    time.sleep(0.3)
+    check("'Rennen wiederholen' gives the power can again", i32(g, g.car() + P.CAR_HELD_POWERUP) == P.POWERUP_CAN,
+          "held %d" % i32(g, g.car() + P.CAR_HELD_POWERUP))
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 1.0))
+    car, t0 = g.car(), time.time()              # fire it as in the first run (the test does not steer)
+    ctl = g.u32(car + 0x1F4)
+    while i32(g, car + P.CAR_HELD_POWERUP + 4) != P.POWERUP_CAN and time.time() - t0 < 3.0:
+        for _ in range(50):
+            g.write(ctl + 0x22, b"\x01")
     ok = g.wait_overlay(0x0E, timeout=40)
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
     check("the repeated stretch is finished", ok)

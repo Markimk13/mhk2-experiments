@@ -456,6 +456,11 @@ CH_ACTIVE, CH_START, CH_LEN, CH_DONE, CH_LAST, CH_LO, CH_HI, CH_DAY, CH_METRES, 
 # CH_SEED0: the seed it started from (the pause page shows it for a random challenge).
 # CH_FROM: the challenge page was left with "Zurück" (the race mode page then selects its button).
 CH_NEWBEST = CH_DATA + 0x34    # the last daily run became the best of the day (ch_promote)
+CH_CAN = CH_DATA + 0x38        # the power can of this race was given (ch_finish; ch_grid clears it)
+# Every challenge race gives player 1 one power can ("Powerdose", user, 2026-11-27): the held
+# power-up car+270h (-1 none) becomes 7 on the first racing frame. Car::Update fires it on the
+# fire key (0x4330FA..0x433129); the car reset at the race start and restart (0x436F21) clears it.
+CAR_HELD_POWERUP, POWERUP_CAN = 0x270, 7
 CH_SAVE = CH_DATA + 0x40
 CH_SWAP = (0x10, 0x1C, 0x20, 0x4C, 0x58) + tuple(0x2E4C + 4 * k for k in range(8))   # class, mode, track,
 # the 60 FPS switch, player 1's character, the eight tuning values (TUNE_VALUES)
@@ -4167,6 +4172,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     t_mem("89", 0, CH_LAST, "mov         dword ptr %s,eax")
     a.raw("33 C9", "xor         ecx,ecx")
     t_mem("89", 1, CH_DONE, "mov         dword ptr %s,ecx")
+    t_mem("89", 1, CH_CAN, "mov         dword ptr %s,ecx")              # the can comes again
     t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
     a.raw("D9 C0", "fld         st(0)")
     t_mem("D8", 4, "ch_band", "fsub        dword ptr %s")
@@ -4191,7 +4197,16 @@ def build_payload(base, factors, pulls, known=None, version=None):
     t_active()
     a.jcc_near("je", "ch_finish_stock")
     a.raw("85 DB", "test        ebx,ebx")
-    a.jcc_short("jne", "ch_finish_not")
+    a.jcc_near("jne", "ch_finish_not")
+    # the power can, once per race, on the first racing frame
+    t_mem("8B", 0, CH_CAN, "mov         eax,dword ptr %s")
+    a.raw("85 C0", "test        eax,eax")
+    a.jcc_short("jne", "ch_finish_has_can")
+    a.raw("C7 86 %s %s" % (_le(CAR_HELD_POWERUP), _le(POWERUP_CAN)),
+          "mov         dword ptr [esi+%08Xh],%s" % (CAR_HELD_POWERUP, _imm(POWERUP_CAN)))
+    disp = tdisp(CH_CAN)
+    a.raw("C7 85 %s 01 00 00 00" % _le(disp), "mov         dword ptr [ebp+%08Xh],1" % disp)
+    a.label("ch_finish_has_can")
     a.raw("D9 86 24 02 00 00", "fld         dword ptr [esi+00000224h]")
     a.raw("D9 C0", "fld         st(0)")
     t_mem("D8", 4, CH_LAST, "fsub        dword ptr %s")

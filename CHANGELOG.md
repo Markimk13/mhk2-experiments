@@ -16,6 +16,7 @@ versions stay.
   colour. The pause page shows the challenge: the date or the seed, the values, the track and
   your driver. The result shows your time and, in a daily challenge, your best time of the day,
   also at the top right during the race. No highscore list follows the result.
+- Challenges: every challenge race gives you one power can. Choose the best place to fire it.
 
 ### For developers
 

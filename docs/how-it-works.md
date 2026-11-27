@@ -103,6 +103,10 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   0Fh) adds its three buttons, then the highscore table from 0x42351F on. In a challenge, it
   adds the same lines and the title *Herausforderung* instead, and jumps to the page's end
   (0x424658).
+- **Power can.** The held power-up of a car is car+270h (-1 = none, 7 = power can). In a
+  challenge, the finish hook sets it to 7 on the first frame of the race, once per race. The car
+  fires it on the power-up key (0x4330FA). The car reset at the start and the restart clears it
+  (0x436F21). The phantom recording stores the held power-up, so a phantom fires it too.
 - **HUD best time.** The HUD reads the best lap at 0x41965C (Hud + player × 4 + 18h). In a daily
   challenge with a time of the day, it reads the best time of the day instead.
 - **HUD.** The lap line (text 100 at 0x419078) becomes text 105 with the metres:

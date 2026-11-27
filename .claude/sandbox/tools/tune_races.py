@@ -7,6 +7,8 @@ Anpressdruck and Schwerkraft (percent; Schwerkraft 100 if left out). The player'
 their mean speed, the top speed seen, how long they stood nearly still, and whether a kart "ran
 away": faster than 1.5 times what its gearing allows at the engine's limit (6000 rpm), which only
 happens when the physics blows up. A run ends one second after the first runaway.
+--cans gives the computer karts a power can again and again (ai_race.py --cans); the line then
+ends with the number of cans fired.
 --physics60 switches "60-FPS-Fahrphysik" on (for builds that run faster than 60 FPS); --tag is put
 in front of the names in the log and in the file names (for example the frame rate of the build).
 Uses ai_race.py (one game at a time, waits for other instances). Results also go to <out dir>\races.log.
@@ -73,6 +75,9 @@ def main():
     physics60 = "--physics60" in args
     if physics60:
         args.remove("--physics60")
+    cans = "--cans" in args
+    if cans:
+        args.remove("--cans")
     tag = ""
     if "--tag" in args:
         i = args.index("--tag")
@@ -89,12 +94,15 @@ def main():
         limit = max(100.0, 1.5 * rev_limit_speed(vals[0]))
         r = subprocess.run([sys.executable, os.path.join(HERE, "ai_race.py"), exe, out, "--seconds", seconds, "--cls", "5",
                             "--track", track, "--tune", ",".join(str(v) for v in vals), "--stop-above", "%.0f" % limit]
-                           + (["--physics60"] if physics60 else []),
+                           + (["--physics60"] if physics60 else []) + (["--cans"] if cans else []),
                            capture_output=True, text=True)
         if not os.path.exists(out):
             line = "%-24s %s: NO DATA (%s)" % (name, vals, (r.stdout + r.stderr).strip()[-160:])
         else:
             line = "%-24s %s: %s" % (name, vals, report(out, limit))
+            fired = [l for l in r.stdout.splitlines() if l.startswith("cans fired")]
+            if fired:
+                line += " | " + fired[0]
         print(line, flush=True)
         log.write(line + "\n")
         log.flush()

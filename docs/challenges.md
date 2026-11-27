@@ -47,6 +47,9 @@ track, driver and tuning values are back when you leave.
 - **The kart.** A challenge always uses the tuning class, with values that are hard but drivable.
   The tuning page would call them *Am Limit* or *Hart am Limit*
   ([Tuning class](tuning-class.md)). The switch *60-FPS-Fahrphysik* is on for the race.
+- **The power can.** Every challenge race gives you one power can when the race starts. Fire it
+  with the power-up key, at the place where it gains the most time. *Rennen wiederholen* gives
+  you a new one. The phantom of the day shows where your best run fired it.
 - **The finish.** The race ends after the stretch. The result page shows *Deine Zeit* (your
   time). In a daily challenge, the line below shows your best time of the day, or *Neue
   Bestzeit!* (new best time) in green. *Weiter* leads to the same lines with the buttons

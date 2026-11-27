@@ -25,6 +25,9 @@ every kart's strength. 1.0 = full throttle for all, no rubber band.
 --geo-on 0,0,0,1,1,1 switches the geometric driver (geo_driver.asm, builds from patch 1.10 work)
 per class, --geo k=v,... sets its values for every kart, --geo-kart N:k=v,... for kart number N
 (car+304h; repeatable). Written before the race starts.
+--cans gives every computer kart a power can ("Powerdose", car+270h = 7) whenever it holds no
+power-up and none is active; the computer karts fire it themselves (as in a race with item
+boxes). Prints how many cans they fired. For the challenges, which give the player one can.
 --watch off switches the watch off (geo_watch in geo_driver.asm: a kart without progress for WT
 seconds goes back to the road), --watch WT[,WA] sets its times and switches it on in every class.
 One row per kart per game frame; the last columns are the kart number, laps + progress
@@ -78,6 +81,7 @@ def main():
     ap.add_argument("--geo", default="")
     ap.add_argument("--geo-kart", action="append", default=[])
     ap.add_argument("--watch", default=None)
+    ap.add_argument("--cans", action="store_true")
     a = ap.parse_args()
     exe = os.path.abspath(a.exe)
     log = os.path.join(os.path.dirname(exe), "log.txt")
@@ -205,6 +209,8 @@ def main():
     rows = []
     last = None
     stop_at = None
+    fired = [0] * len(cars)
+    was_can = [False] * len(cars)
     wall0 = time.time()
     while time.time() - wall0 < a.seconds + 30:
         rt_raw = H.read(h, cm + 0x20, 4)
@@ -224,19 +230,28 @@ def main():
             wheels = []
             for k in range(4):
                 wheels += [struct.unpack_from("<i", w, k * 0x84 + 0x18)[0], struct.unpack_from("<f", w, k * 0x84 + 0x40)[0]]
+            held, active = struct.unpack("<2i", H.read(h, c + 0x270, 8))
+            if a.cans and i:
+                if active == 7 and not was_can[i]:
+                    fired[i] += 1
+                was_can[i] = active == 7
+                if held == -1 and active == -1:
+                    r.write(c + 0x270, struct.pack("<i", 7))
             prog = f32(h, c + 0x220)
             cl = struct.unpack("<4f", H.read(h, ctls[i] + 0x14, 12) + H.read(h, ctls[i] + 0x88, 4)) if ctls[i] else (0, 0, 0, 0)
             surf = [struct.unpack_from("<i", w, k * 0x84 + 0x14)[0] for k in range(4)]
             rows.append((rt, i, mass[i], x, y, z, vx, vy, vz, m[0], m[1], m[2], m[8], m[9], m[10], *wheels,
                          knum[i], prog, cl[3], cl[0], cl[1], cl[2], f32(h, c + 0x22C), f32(h, c + 0x224),
-                         *surf, m[4], m[5], m[6], H.u32(h, c + 0x29C)))
+                         *surf, m[4], m[5], m[6], H.u32(h, c + 0x29C), active))
     else:
         raise SystemExit("race clock stopped (paused?)")
     with open(a.out, "w") as f:
         f.write("t,kart,mass,x,y,z,vx,vy,vz,fx,fy,fz,sx,sy,sz," + ",".join(f"c{k},load{k}" for k in range(4))
-                + ",knum,prog,allow,thr,brk,steer,lat,pathprog,surf0,surf1,surf2,surf3,ux,uy,uz,cstate\n")
+                + ",knum,prog,allow,thr,brk,steer,lat,pathprog,surf0,surf1,surf2,surf3,ux,uy,uz,cstate,pu\n")
         for row in rows:
             f.write(",".join("%.5f" % v if isinstance(v, float) else str(v) for v in row) + "\n")
+    if a.cans:
+        print("cans fired: %d (%s)" % (sum(fired), " ".join(str(n) for n in fired[1:])), flush=True)
     print(f"{os.path.basename(exe)}: {len(rows)} rows, {len(cars)} karts, fps stat {f32(h, 0x0087B0CC):.1f}")
     H.kernel32.TerminateProcess(h, 0)
 
