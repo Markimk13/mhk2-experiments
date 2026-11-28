@@ -77,7 +77,9 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   0.3 to 0.7), the character (% 7) and one of 64 sets of tuning values. `challenge_draw()` in
   the patcher does the same in Python.
 - **Seeds.** *Zufall* takes `GetTickCount`. *Täglich* takes the day: the days since 1601 from
-  `GetSystemTimeAsFileTime` (UTC), times 9E3779B1h, xor 5EED35h.
+  `GetSystemTimeAsFileTime` (UTC), times 9E3779B1h, xor 5EED35h. The patch divides the
+  FILETIME with integers (a shift by 14, then two 32-bit divisions by 52734375): the game runs
+  the x87 in single precision, and a float division moved the day change by up to 20 minutes.
 - **Tuning sets.** The patcher draws the 64 sets when it builds the exe, with a fixed seed. It
   keeps a set when `tune_limit()` gives it the line *Am Limit* or *Hart am Limit* and when
   `top_speed()` is at least that of the preset *150 cc* for every character. The gravity stays in
@@ -127,12 +129,10 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
 - **Medals.** The draw also computes the three medal times and keeps them at 0x885180. The
   reference time is ((C_t(start + share) − C_t(start)) × LAP[t] × SET[s] + LOSS[s]) × CHAR[c].
   C_t is the cumulative share of the lap time at 65 points of the path (`CH_PACE_SHAPE`), linear
-  between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.66, 0.74 and
-  0.85, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
+  between them, with C(e − 1) + 1 behind the wrap. Each medal is the reference × 0.95, 1.05 and
+  1.2, rounded to hundredths n. The patch stores (n + 0.99) / 100, because the game's time text
   cuts the hundredths: a float a hair below n would show n − 1. A run wins a medal exactly when
-  its own time shows n or less. Before the rounding, each medal is at least the stretch's metres
-  / top speed / `CH_MEDAL_CAPS` (0.93, 0.82, 0.72; the top speed in km/h from `tune_top`, as the
-  page shows it, divided by 3.6). `challenge_medals()` in the patcher does the same in Python. The
+  its own time shows n or less. `challenge_medals()` in the patcher does the same in Python. The
   result compares the run's time with each medal (time ≤ medal wins) and shows text 173 to 175,
   or text 176 with the bronze time.
 - **Medal tables.** The tables come from races of computer karts: class 5 with the set's values,

@@ -356,3 +356,18 @@ stretch from them at the draw.
   93 / 82 / 72 % of the top speed", blind to bends and hills; the pace tables matter only where
   the computer karts are slow (Insel, slow sets). Next: the user's daily runs with the recorder;
   if bends make 82 % too hard on twisty stretches, a share per track or from the shape table.
+- **The cap was wrong; factors from the user's runs (2026-11-28)**: the user recorded 13 challenges
+  (`runs\user\20261128_0037..0100`, 1 to 18 tries each, all best runs with the can;
+  `challenge_runs.py` lists them). Their average speed was 57..115 % of the top speed (fast sets
+  57..78 %: the bends limit; slow sets 87..115 %: downhill and the can), so the cap set every
+  silver and missed by x0.71..x1.63. Against the computer karts' time (no cap), per track index:
+  0.87, 0.91 (1), 1.03, 1.05, 1.08, 1.29 (2 = Insel), 1.06, 1.20 (0 = Moorhuhn X), 1.09, 0.93,
+  1.37 (3, 6, 7), 1.77 (5, a crashed run). The daily of 11-27 (Insel, set 24 now, Anpressdruck
+  775 %) against the new tables: 0.65 with the can, 0.74 without; an outlier of set and track,
+  not Insel (track 4 is Fabrik, not Insel: I mixed them up once and put a 0.65 factor on track 4,
+  removed before the commit). The cap is gone; CH_MEDAL_FACTORS = 0.95 / 1.05 / 1.2. With them
+  the 12 best runs give 3 gold, 2 silver, 3 bronze, 4 none (one 0.1 s off bronze). So "a good
+  player is 30 % faster" came from that one outlier.
+- **Day change fixed (2026-11-28)**: `ch_today` divided FILETIME by the day in x87; the game runs
+  the FPU in 24-bit precision, so near midnight UTC the day was one off (a flow at 00:05 UTC got
+  the day before). Now integers: shrd by 14, two `div` by 52734375 (DAY_100NS = 2^14 x that).

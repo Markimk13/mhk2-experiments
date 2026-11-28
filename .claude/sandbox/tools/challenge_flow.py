@@ -282,7 +282,7 @@ def run(g, out, daily):
     if not ok:
         return
     run_time = f32(g, g.gp + P.PHANTOM_RUN + 0x58)
-    check("the run has a time", 0.5 < run_time < 60, "%.2f s" % run_time)
+    check("the run has a time", 0.1 < run_time < 60, "%.2f s" % run_time)      # 8..20 m, with the can
     time.sleep(1.0)
     texts = overlay_texts(g)
     print("-- result overlay:", texts)

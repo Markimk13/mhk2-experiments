@@ -402,8 +402,7 @@ def challenge_medals(seed):
     """The gold, silver and bronze times of a draw (mirrors ch_medals): the reference time
     = (lap time of the track * factor of the set * share of the lap time over the stretch
     + standing loss of the set) * factor of the character; each medal a factor on it, rounded to
-    hundredths, plus CH_MEDAL_UP hundredths. No medal is faster than the stretch at CH_MEDAL_CAPS of
-    the top speed."""
+    hundredths, plus CH_MEDAL_UP hundredths."""
     track, start, share, char, _ = challenge_draw(seed)
     s = _draw_set(seed)
     cum = challenge_pace_cum()[track]
@@ -414,9 +413,7 @@ def challenge_medals(seed):
     e = _f32(start + share)
     part = c(e - 1.0) + 1.0 if e >= 1.0 else c(e)
     ref = ((part - c(start)) * CH_PACE_LAP[track] * CH_PACE_SET[s] + CH_PACE_LOSS[s]) * CH_PACE_CHAR[char]
-    per = _f32(_f32(share) * _f32(CH_PATHS[track]) / top_kmh(challenge_sets()[s], char))   # metres per km/h
-    return tuple((round(max(ref * f, per * _f32(3.6 / cap)) * 100) + CH_MEDAL_UP) / 100
-                 for f, cap in zip(CH_MEDAL_FACTORS, CH_MEDAL_CAPS))
+    return tuple((round(ref * f * 100) + CH_MEDAL_UP) / 100 for f in CH_MEDAL_FACTORS)
 
 
 def _draw_set(seed):
@@ -552,7 +549,8 @@ START_RACE = 0x004122E0         # Menu::StartRace (this = menu), what the game's
 TIME_TEXT = 0x00411FA0          # std::string* __stdcall (std::string* out, float seconds): "mm:ss:hh"
 IMP_TICKS = 0x0059514C          # GetTickCount
 IMP_SYSTIME = 0x0059511C        # GetSystemTimeAsFileTime
-DAY_100NS = 864000000000.0      # one day in FILETIME units
+DAY_100NS = 864000000000        # one day in FILETIME units (100 ns)
+assert DAY_100NS == (DAY_100NS >> 14) << 14     # ch_today shifts by 14 before it divides
 # The draw: xorshift32 from the seed (random: GetTickCount; daily: the day * 9E3779B1h xor
 # 5EED35h), five numbers in this order: track (% 8), start (% 1000, per mille of the path),
 # metres (1000 + % 601, then as a share of the path, kept in 0.3..0.7), character (% 7), set of
@@ -575,12 +573,13 @@ CH_MIN_TOP_PRESET = "150 cc"
 # player: the user drove the daily challenge of 2026-11-27 (Insel, 1185 m, reference 29.0 s) in
 # 20.60 s without the power can and 18.12 s with it (user, 2026-11-27: "far too easy" at 0.97 /
 # 1.0 / 1.1). Gold needs a good run with the can, silver a good run without it.
-CH_MEDAL_FACTORS = (0.66, 0.74, 0.85)
-# No medal needs a higher average speed than this share of the top speed (top_kmh of the set and
-# the driver): the computer karts are faster than the top speed allows on some tracks (Moorhuhn X,
-# Ägypten: median 0.9 .. 1.0 of it, the item boxes of their races?), Insel 0.6. The user's run on
-# Insel averaged 0.82 of the top speed without the can and 0.93 with it (2026-11-27).
-CH_MEDAL_CAPS = (0.93, 0.82, 0.72)
+# The user's best runs of 12 challenges (2026-11-28, all with the can, 1 to 18 tries each,
+# challenge_runs.py) took 0.87 .. 1.37 of the computer karts' time, median 1.06. One draw is far
+# off: the daily of 2026-11-27 (Insel, set 24, Anpressdruck 775 %) took 0.65 with the can, 0.74
+# without; four other draws on Insel took 1.03 .. 1.29, so it is the set on the track, not Insel.
+# A top speed cap tried before (no medal faster than 93 / 82 / 72 % of the top speed) decided 88 %
+# of the medals and missed by far: the user averaged 57 .. 115 % of the top speed.
+CH_MEDAL_FACTORS = (0.95, 1.05, 1.2)
 # A medal of n hundredths is stored as (n + 0.99) / 100: the game's time text cuts the hundredths,
 # so the medal shows n (and not n - 1 for a float a hair below), and a run wins it exactly when its
 # own time shows n or less.
@@ -5098,15 +5097,7 @@ def build_payload(base, factors, pulls, known=None, version=None):
     # The medal times of the draw (ebx = GameParameters, ebp = tune_T; see challenge_medals).
     # Clobbers eax, ecx, edx.
     a.label("ch_medals")
-    a.raw("8D 93 " + _le(TUNE_VALUES), "lea         edx,[ebx+%08Xh]" % TUNE_VALUES)
-    a.call("tune_top")                                                          # eax = km/h
-    a.raw("50", "push        eax")
-    a.raw("8B 4B 20", "mov         ecx,dword ptr [ebx+20h]")
-    t_mem("D9", 0, CH_LEN, "fld         dword ptr %s")
-    disp = tdisp("ch_paths")
-    a.raw("D8 8C 8D " + _le(disp), "fmul        dword ptr [ebp+ecx*4+%08Xh]" % disp)
-    a.raw("DA 34 24", "fidiv       dword ptr [esp]")
-    a.raw("D9 1C 24", "fstp        dword ptr [esp]")                         # metres per km/h
+    a.raw("8B 4B 20", "mov         ecx,dword ptr [ebx+20h]")                  # the track
     t_mem("D9", 0, CH_START, "fld         dword ptr %s")
     t_mem("D8", 0, CH_LEN, "fadd        dword ptr %s")                    # the end
     t_mem("D8", 2, "ch_one", "fcom        dword ptr %s")
@@ -5137,23 +5128,11 @@ def build_payload(base, factors, pulls, known=None, version=None):
             a.raw("D9 C0", "fld         st(0)")
         disp = tdisp("ch_medal_factors") + 4 * k
         a.raw("D8 8D " + _le(disp), "fmul        dword ptr [ebp+%08Xh]" % disp)
-        a.raw("D9 04 24", "fld         dword ptr [esp]")
-        disp = tdisp("ch_medal_caps") + 4 * k
-        a.raw("D8 8D " + _le(disp), "fmul        dword ptr [ebp+%08Xh]" % disp)   # the stretch at the cap
-        a.raw("D8 D1", "fcom        st(1)")
-        fpu_flags(0x01)
-        a.jcc_short("jne", "ch_medals_ai%d" % k)                                 # the cap's time is shorter
-        a.raw("DD D9", "fstp        st(1)")
-        a.jmp_short("ch_medals_round%d" % k)
-        a.label("ch_medals_ai%d" % k)
-        a.raw("DD D8", "fstp        st(0)")
-        a.label("ch_medals_round%d" % k)
         t_mem("D8", 1, "ch_hundred", "fmul        dword ptr %s")
         a.raw("D9 FC", "frndint")
         t_mem("D8", 0, "ch_medal_up", "fadd        dword ptr %s")
         t_mem("D8", 1, "hundredth", "fmul        dword ptr %s")
         t_mem("D9", 3, CH_MEDALS + 4 * k, "fstp        dword ptr %s")
-    a.raw("59", "pop         ecx")
     a.raw("C3", "ret")
 
     # eax = today, in days since 1601 (UTC). ebp = tune_T. Clobbers ecx, edx.
@@ -5161,12 +5140,21 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("83 EC 08", "sub         esp,8")
     a.raw("54", "push        esp")
     t_call_import(IMP_SYSTIME)
-    a.raw("DF 2C 24", "fild        qword ptr [esp]")
-    t_mem("DC", 6, "ch_day_len", "fdiv        qword ptr %s")
-    t_mem("D8", 4, "ch_half", "fsub        dword ptr %s")               # rounding to nearest: floor
-    a.raw("DB 1C 24", "fistp       dword ptr [esp]")
-    a.raw("58", "pop         eax")
-    a.raw("59", "pop         ecx")
+    # FILETIME / DAY_100NS, exact: the game runs the x87 in single precision (Direct3D), so a
+    # float division put the day change up to about 20 minutes off midnight (UTC). DAY_100NS =
+    # 2^14 * 52734375: a shift, then a 64 / 32 bit division in two steps.
+    a.raw("8B 04 24", "mov         eax,dword ptr [esp]")
+    a.raw("8B 54 24 04", "mov         edx,dword ptr [esp+4]")
+    a.raw("0F AC D0 0E", "shrd        eax,edx,0Eh")
+    a.raw("C1 EA 0E", "shr         edx,0Eh")
+    a.raw("89 04 24", "mov         dword ptr [esp],eax")
+    a.raw("B9 " + _le(DAY_100NS >> 14), "mov         ecx,%s" % _imm(DAY_100NS >> 14))
+    a.raw("8B C2", "mov         eax,edx")
+    a.raw("33 D2", "xor         edx,edx")
+    a.raw("F7 F1", "div         eax,ecx")
+    a.raw("8B 04 24", "mov         eax,dword ptr [esp]")
+    a.raw("F7 F1", "div         eax,ecx")
+    a.raw("83 C4 08", "add         esp,8")
     a.raw("C3", "ret")
 
     # eax = text id, edx = room for a std::string (1Ch bytes, not built yet): eax = the text.
@@ -6584,8 +6572,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<f", 100.0), "float 100")
     a.label("ch_len_min")
     a.data(struct.pack("<2f", CH_LEN_MIN, CH_LEN_MAX), "float %g, %g: a challenge's share of the path" % (CH_LEN_MIN, CH_LEN_MAX))
-    a.label("ch_day_len")
-    a.data(struct.pack("<d", DAY_100NS), "double %g: a day in FILETIME units" % DAY_100NS)
     a.label("ch_paths")
     a.data(struct.pack("<8f", *CH_PATHS), "float: path length of the eight tracks")
     a.label("ch_sets")
@@ -6595,9 +6581,6 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<f", 64.0), "float 64")
     a.label("ch_medal_up")
     a.data(struct.pack("<f", CH_MEDAL_UP), "float %g: a medal of n hundredths is n.99, see CH_MEDAL_UP" % CH_MEDAL_UP)
-    a.label("ch_medal_caps")
-    a.data(struct.pack("<3f", *(3.6 / c for c in CH_MEDAL_CAPS)),
-           "float: 3.6 / CH_MEDAL_CAPS (%g, %g, %g), the slowest medal times per metre and km/h" % CH_MEDAL_CAPS)
     a.label("ch_medal_factors")
     a.data(struct.pack("<3f", *CH_MEDAL_FACTORS), "float %g, %g, %g: gold, silver, bronze on the reference time" % CH_MEDAL_FACTORS)
     a.label("ch_pace_lap")

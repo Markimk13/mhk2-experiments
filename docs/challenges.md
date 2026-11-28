@@ -72,9 +72,8 @@ the pause page show them. The result page shows the medal that your time won:
 | Slower than bronze | *Keine Medaille* (no medal) and the bronze time |
 
 The times come from races of computer karts with the same track, tuning values and driver. A
-good player is about 30 % faster than these computer karts. For gold, you need a good run and the
-power can at the right place. For silver, a good run without the power can is enough. No medal
-asks for more than the top speed of your kart allows.
+good run with the power can is about as fast as these computer karts, and that wins silver. For
+gold, you need a run that is 10 % faster.
 
 ## Records and phantoms
 
@@ -107,14 +106,13 @@ track, about 170 races in all. From these races, it knows:
 - the time that the standing start costs with each set (0 to 3 seconds),
 - a factor for each driver (within 2 %).
 
-The computer karts' time is the sum of these for the drawn stretch. Gold is 0.66 of it, silver
-0.74 and bronze 0.85. These factors come from the first daily challenge: a good run took 0.71 of
-the computer karts' time without the power can, and 0.62 with it.
+The computer karts' time is the sum of these for the drawn stretch. Gold is 0.95 of it, silver
+1.05 and bronze 1.2.
 
-On some tracks, the computer karts are faster than the top speed allows. So no medal needs a
-higher average speed than a share of the top speed: 93 % for gold, 82 % for silver and 72 % for
-bronze. The same run on Insel averaged 82 % of the top speed without the power can, and 93 % with
-it.
+These factors come from the best runs of one player in 13 challenges, all with the power can. The
+best run took 0.87 to 1.37 of the computer karts' time, 1.06 in the middle. One challenge was far
+off: on Insel with *Anpressdruck* (downforce) 775 %, the best run took only 0.65 of their time.
+The computer karts drive badly with some values on some tracks.
 
 A test left out one race at a time and computed it from the others. For a full lap, the model was off by 2.6 % in the middle. For a
 stretch, it was off by 4.2 % in the middle, and one stretch in ten was off by 15 % or more.
