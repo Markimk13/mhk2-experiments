@@ -18,7 +18,8 @@ versions stay.
   also at the top right during the race. No highscore list follows the result.
 - Challenges: every challenge race gives you one power can. Choose the best place to fire it.
 - Challenges: every challenge has a gold, silver and bronze time. The result shows the medal
-  that you won. → [Challenges](docs/challenges.md#medals)
+  that you won. Your driver cheers only with a medal. → [Challenges](docs/challenges.md#medals)
+- Challenges: your best time of the day has the colour of the medal that it reaches.
 
 ### Changed
 

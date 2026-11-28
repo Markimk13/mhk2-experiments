@@ -135,6 +135,13 @@ The patch makes 91 small patches in the original code. It adds about 8300 bytes 
   its own time shows n or less. `challenge_medals()` in the patcher does the same in Python. The
   result compares the run's time with each medal (time ≤ medal wins) and shows text 173 to 175,
   or text 176 with the bronze time.
+- **Cheering.** At the finish, the game sets a flag when the player's place is under 3 (0x406B55).
+  With the flag, the car gets state 3 (`winner.anm`, sound `RACE_finish`), else state 4 (sound
+  `RACE_failure`). In a challenge, the finish hook sets the flag when the run's time reaches
+  bronze.
+- **Best time in colour.** The texts of the best time of the day (155, 157, 169) take three
+  strings: an opening colour tag, the time, a closing tag. `ch_tags` picks the tags of the best
+  medal that the time reaches, or two empty strings.
 - **Medal tables.** The tables come from races of computer karts: class 5 with the set's values,
   *Tempo* 100 %, 6 improved karts, the 60 FPS switch, each kart's path progress per 1/64 lap. A
   set's lap time on a track is the sum of the 30 % quantile of every 1/64 over all karts and

@@ -371,3 +371,15 @@ stretch from them at the draw.
 - **Day change fixed (2026-11-28)**: `ch_today` divided FILETIME by the day in x87; the game runs
   the FPU in 24-bit precision, so near midnight UTC the day was one off (a flow at 00:05 UTC got
   the day before). Now integers: shrd by 14, two `div` by 52734375 (DAY_100NS = 2^14 x that).
+- **Cheering only with a medal (user, 2026-11-28)**: the race update (fn 0x4067B0) sets byte
+  [esp+17h] when fn 0x437A90 (the place) gives < 3 (0x406B55), then at 0x406D56 car state 3 via
+  0x42D230 (fn 0x42D6C0 plays animation 25 = `winner.anm` in state 3, with a random timer
+  car+348h) and the sound `RACE_finish`; else state 4 (animation 0, sound `RACE_failure`).
+  Animations are numbered in load order in fn 0x4343E0: ... 20 respawn, 21 shake, 22/23
+  shoutleft/right, 24 shotdown, 25 winner. `ch_finish` (hook at 0x406B5A, ebp pushed, so the flag
+  is [esp+1Bh]) sets it with `setne` from fcomp of car+258h against the bronze time. Soon after,
+  the car goes to state 5 (0x42D230 resets the animation), so a test must watch car+2D0h while it
+  waits for the overlay (`challenge_flow.py` `finish_state`).
+- **Best time of the day in its medal's colour (user, 2026-11-28)**: TXT_CH_BEST, TXT_CH_P_DAILY,
+  TXT_CH_R_BEST take "%s%s%s" (open tag, time, close tag); `ch_tags` (eax = the float) returns
+  the gold / silver / bronze tag or two empty strings. Not in the HUD's *Bestzeit* top right.

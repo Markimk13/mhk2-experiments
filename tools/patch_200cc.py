@@ -1183,13 +1183,13 @@ def text_overrides(lang="de", version=None, lines_only=False):
         (TXT_CH_MODE, t["ch_mode"]), (TXT_CH_TITLE, title % t["ch_mode"]),
         (TXT_CH_RANDOM, t["ch_random"]), (TXT_CH_DAILY, t["ch_daily"]),
         (TXT_CH_DRAW, "<scale 0.7>%s</scale>" % t["ch_draw"]),
-        (TXT_CH_BEST, "<scale 0.7>%s</scale>" % t["ch_best"]),
+        (TXT_CH_BEST, "<scale 0.7>%s</scale>" % (t["ch_best"] % "%s%s%s")),     # the time in its medal's colour
         (TXT_CH_BEST_NONE, "<scale 0.7>%s</scale>" % t["ch_best_none"]),
-        (TXT_CH_P_DAILY, "<scale 0.6>%s %s, %s %%s</scale>" % (
+        (TXT_CH_P_DAILY, "<scale 0.6>%s %s, %s %%s%%s%%s</scale>" % (
             TXT_GROUP % t["ch_p_daily"], t["ch_p_date"], TXT_GROUP % t["ch_p_best"])),
         (TXT_CH_P_DAILY_NONE, "<scale 0.6>%s %s, %s</scale>" % (
             TXT_GROUP % t["ch_p_daily"], t["ch_p_date"], t["ch_p_best_none"])),
-        (TXT_CH_R_TIME, t["ch_r_time"]), (TXT_CH_R_BEST, t["ch_r_best"]),
+        (TXT_CH_R_TIME, t["ch_r_time"]), (TXT_CH_R_BEST, t["ch_r_best"] % "%s%s%s"),
         (TXT_CH_R_NEW, CH_R_NEW_COLOR % t["ch_r_new"]),
         (TXT_CH_MEDALS, "<scale 0.7>%s</scale>" % "   ".join(
             "<color %s>%s</color> %%s" % (c, m) for c, m in zip(CH_MEDAL_COLORS, t["medals"]))),
@@ -1246,7 +1246,9 @@ def text_overrides(lang="de", version=None, lines_only=False):
             + len(longest[TXT_CH_P_MEDALS] % (("99:99:99",) * 3)) < PAUSE_FRAME - 0x180)
     assert len(longest[TXT_CH_MEDALS] % (("99:99:99",) * 3)) < 0x200
     assert len(longest[TXT_CH_R_NONE] % "99:99:99") < 0x100
-    assert len(longest[TXT_CH_P_DAILY] % (31, 12, 30000, "99:99:99")) < 0x100
+    tags = ("<color %s>" % max(CH_MEDAL_COLORS, key=len), "</color>")      # ch_tags around a best time
+    assert len(longest[TXT_CH_P_DAILY] % ((31, 12, 30000) + (tags[0], "99:99:99", tags[1]))) < 0x100
+    assert all(len(longest[n] % (tags[0], "99:99:99", tags[1])) < 0x100 for n in (TXT_CH_BEST, TXT_CH_R_BEST))
     assert (len(longest[TXT_PAUSE_PLAIN] % ("x" * 0x1F, "x" * 0x1F)) + len(longest[TXT_TOP_PAUSE[1]] % 999)
             + len(longest[TXT_PAUSE_OPP[1]] % opp_widest) < OWN_VALUES_BUF)
     if lines_only:
@@ -4412,6 +4414,12 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("89 86 5C 02 00 00", "mov         dword ptr [esi+0000025Ch],eax")
     a.raw("89 86 60 02 00 00", "mov         dword ptr [esi+00000260h],eax")
     a.raw("C7 86 64 02 00 00 03 00 00 00", "mov         dword ptr [esi+00000264h],3")
+    # the cheering: the game sets [esp+17h] for a place under 3 (0x406B55), and then car state 3
+    # (winner.anm, "RACE_finish") instead of 4 ("RACE_failure"). In a challenge: a medal.
+    a.raw("D9 86 58 02 00 00", "fld         dword ptr [esi+00000258h]")
+    t_mem("D8", 3, CH_MEDALS + 8, "fcomp       dword ptr %s")
+    fpu_flags(0x41)
+    a.raw("0F 95 44 24 1B", "setne       byte ptr [esp+1Bh]")                    # +4: ebp pushed
     a.raw("5D", "pop         ebp")
     a.jmp(CH_FINISH_GO)
     a.label("ch_finish_not")
@@ -4615,6 +4623,25 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("51", "push        ecx")                                               # displaced
     a.jmp(CH_HUDBEST_BACK)
 
+    # eax = a time (float): eax = the opening colour tag of the best medal it reaches, edx = the
+    # closing tag; two empty strings without a medal. ebp = tune_T. Clobbers ecx.
+    a.label("ch_tags")
+    a.raw("D9 00", "fld         dword ptr [eax]")
+    for k in range(3):
+        t_lea("ecx", "ch_tag%d" % k)
+        t_mem("D8", 2, CH_MEDALS + 4 * k, "fcom        dword ptr %s")
+        fpu_flags(0x41)
+        a.jcc_short("jne", "ch_tags_won")                                     # time <= medal
+    a.raw("DD D8", "fstp        st(0)")
+    t_lea("eax", "ch_tag_none")
+    a.raw("8B D0", "mov         edx,eax")
+    a.raw("C3", "ret")
+    a.label("ch_tags_won")
+    a.raw("DD D8", "fstp        st(0)")
+    a.raw("8B C1", "mov         eax,ecx")
+    t_lea("edx", "ch_tag_close")
+    a.raw("C3", "ret")
+
     # The lines "Deine Zeit" and, in a daily challenge, the best time of the day or "Neue
     # Bestzeit!" (esi = menu). Keeps all registers.
     a.label("ch_result_lines")
@@ -4676,7 +4703,28 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_near("jne", "ch_result_done")
     a.raw("3B 83 " + _le(DAILY_ENTRY + 4), "cmp         eax,dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 4))
     a.jcc_near("jne", "ch_result_done")
-    time_line(DAILY_ENTRY + 8, TXT_CH_R_BEST)
+    # the best time of the day in its medal's colour (TXT_CH_R_BEST: tag, time, tag)
+    a.raw("8D 83 " + _le(DAILY_ENTRY + 8), "lea         eax,[ebx+%08Xh]" % (DAILY_ENTRY + 8))
+    a.call("ch_tags")
+    a.raw("52", "push        edx")
+    a.raw("50", "push        eax")
+    a.raw("FF B3 " + _le(DAILY_ENTRY + 8), "push        dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 8))
+    a.raw("8D 44 24 0C", "lea         eax,[esp+0Ch]")
+    a.raw("50", "push        eax")
+    a.raw("8B CE", "mov         ecx,esi")
+    a.call(TIME_TEXT)
+    a.raw("8B C8", "mov         ecx,eax")
+    a.call(STR_CSTR)
+    a.raw("59", "pop         ecx")
+    a.raw("50", "push        eax")
+    a.raw("51", "push        ecx")
+    a.raw("68 " + _le(TXT_CH_R_BEST), "push        %s" % _imm(TXT_CH_R_BEST))
+    a.raw("8D 44 24 50", "lea         eax,[esp+50h]")
+    a.raw("50", "push        eax")
+    a.call("tune_printf")
+    a.raw("83 C4 14", "add         esp,14h")
+    a.raw("8B CC", "mov         ecx,esp")
+    a.call(STR_DTOR)
     a.label("ch_result_line")
     result_label(CH_R_Y[2])
     a.label("ch_result_done")
@@ -4767,20 +4815,26 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.raw("8B C8", "mov         ecx,eax")
     a.call(STR_CSTR)
     a.raw("89 84 24 74 01 00 00", "mov         dword ptr [esp+00000174h],eax")
+    a.raw("8D 83 " + _le(DAILY_ENTRY + 8), "lea         eax,[ebx+%08Xh]" % (DAILY_ENTRY + 8))
+    a.call("ch_tags")
+    a.raw("89 84 24 78 01 00 00", "mov         dword ptr [esp+00000178h],eax")   # the time's tags
+    a.raw("89 94 24 7C 01 00 00", "mov         dword ptr [esp+0000017Ch],edx")
     a.raw("47", "inc         edi")
     a.raw("C7 84 24 70 01 00 00 " + _le(TXT_CH_P_DAILY), "mov         dword ptr [esp+00000170h],%s" % _imm(TXT_CH_P_DAILY))
     a.label("pause_ch_date")
     t_mem("8B", 0, CH_DAY, "mov         eax,dword ptr %s")
     a.call("ch_date")
-    a.raw("FF B4 24 74 01 00 00", "push        dword ptr [esp+00000174h]")    # the best time
+    a.raw("FF B4 24 7C 01 00 00", "push        dword ptr [esp+0000017Ch]")    # the closing tag
+    a.raw("FF B4 24 78 01 00 00", "push        dword ptr [esp+00000178h]")    # the best time
+    a.raw("FF B4 24 80 01 00 00", "push        dword ptr [esp+00000180h]")    # the opening tag
     a.raw("52", "push        edx")
     a.raw("51", "push        ecx")
     a.raw("50", "push        eax")
-    a.raw("FF B4 24 80 01 00 00", "push        dword ptr [esp+00000180h]")    # the text id
-    a.raw("8D 44 24 74", "lea         eax,[esp+74h]")
+    a.raw("FF B4 24 88 01 00 00", "push        dword ptr [esp+00000188h]")    # the text id
+    a.raw("8D 44 24 7C", "lea         eax,[esp+7Ch]")
     a.raw("50", "push        eax")
     a.call("tune_printf")
-    a.raw("83 C4 18", "add         esp,18h")
+    a.raw("83 C4 20", "add         esp,20h")
     a.jmp_short("pause_ch_head")
     a.label("pause_ch_random")
     t_mem("FF", 6, CH_SEED0, "push        dword ptr %s")
@@ -5311,18 +5365,24 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.jcc_short("jne", "ch_build_no_best")
     a.raw("3B 83 " + _le(DAILY_ENTRY + 4), "cmp         eax,dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 4))
     a.jcc_short("jne", "ch_build_no_best")
+    a.raw("8D 83 " + _le(DAILY_ENTRY + 8), "lea         eax,[ebx+%08Xh]" % (DAILY_ENTRY + 8))
+    a.call("ch_tags")
+    a.raw("52", "push        edx")                                         # the closing tag
+    a.raw("50", "push        eax")                                         # the opening tag
     a.raw("FF B3 " + _le(DAILY_ENTRY + 8), "push        dword ptr [ebx+%08Xh]" % (DAILY_ENTRY + 8))
-    a.raw("8D 44 24 44", "lea         eax,[esp+44h]")
+    a.raw("8D 44 24 4C", "lea         eax,[esp+4Ch]")
     a.raw("50", "push        eax")
     a.call(TIME_TEXT)
     a.raw("8B C8", "mov         ecx,eax")
     a.call(STR_CSTR)
+    a.raw("59", "pop         ecx")
     a.raw("50", "push        eax")
+    a.raw("51", "push        ecx")
     a.raw("68 " + _le(TXT_CH_BEST), "push        %s" % _imm(TXT_CH_BEST))
-    a.raw("8D 84 24 " + _le(CH_BUF + 8), "lea         eax,[esp+%08Xh]" % (CH_BUF + 8))
+    a.raw("8D 84 24 " + _le(CH_BUF + 0x10), "lea         eax,[esp+%08Xh]" % (CH_BUF + 0x10))
     a.raw("50", "push        eax")
     a.call("tune_printf")
-    a.raw("83 C4 0C", "add         esp,0Ch")
+    a.raw("83 C4 14", "add         esp,14h")
     a.raw("8D 4C 24 40", "lea         ecx,[esp+40h]")
     a.call(STR_DTOR)
     a.jmp_short("ch_build_best")
@@ -6581,6 +6641,13 @@ def build_payload(base, factors, pulls, known=None, version=None):
     a.data(struct.pack("<f", 64.0), "float 64")
     a.label("ch_medal_up")
     a.data(struct.pack("<f", CH_MEDAL_UP), "float %g: a medal of n hundredths is n.99, see CH_MEDAL_UP" % CH_MEDAL_UP)
+    for k, c in enumerate(CH_MEDAL_COLORS):
+        a.label("ch_tag%d" % k)
+        a.data(("<color %s>" % c).encode() + b"\0", "the colour tag of %s" % ("gold", "silver", "bronze")[k])
+    a.label("ch_tag_close")
+    a.data(b"</color>\0", "the closing colour tag")
+    a.label("ch_tag_none")
+    a.data(b"\0", "no tag")
     a.label("ch_medal_factors")
     a.data(struct.pack("<3f", *CH_MEDAL_FACTORS), "float %g, %g, %g: gold, silver, bronze on the reference time" % CH_MEDAL_FACTORS)
     a.label("ch_pace_lap")

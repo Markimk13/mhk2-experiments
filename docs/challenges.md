@@ -71,6 +71,12 @@ the pause page show them. The result page shows the medal that your time won:
 | Bronze time or faster | *Bronzemedaille!* (bronze medal) |
 | Slower than bronze | *Keine Medaille* (no medal) and the bronze time |
 
+With a medal, your driver cheers at the finish. Without a medal, the game plays the sound of a
+lost race, and your driver does not cheer.
+
+In a daily challenge, your best time of the day has the colour of the best medal it reaches: on
+the challenge page, on the pause page and on the result page. Without a medal, it stays white.
+
 The times come from races of computer karts with the same track, tuning values and driver. A
 good run with the power can is about as fast as these computer karts, and that wins silver. For
 gold, you need a run that is 10 % faster.

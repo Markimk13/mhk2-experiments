@@ -102,6 +102,24 @@ def medals_check(g, seed, where):
     return got
 
 
+def finish_state(g, timeout=40):
+    """Waits for the result overlay like wait_overlay and returns (reached, the car state the
+    finish gave: 3 cheering / 4 not). The game moves the car on to state 5 soon after."""
+    car, seen, t0 = g.car(), None, time.time()
+    while time.time() - t0 < timeout:
+        try:
+            st = i32(g, car + 0x2D0)
+            if seen is None and st in (3, 4):
+                seen = st
+            if g.race_phase() == 5 and g.overlay_state() == 0x0E:
+                time.sleep(0.4)
+                return True, seen
+        except OSError:
+            pass
+        time.sleep(0.02)
+    return False, seen
+
+
 def overlay_texts(g):
     st = g.u32(g.u32(0x5E851C) + 4)
     return [t for _, t in PL.items(g, g.u32(st + 0x144))]
@@ -134,6 +152,8 @@ def pause_check(g, out, daily, drawn, start, length):
         check("pause: 'Tägliche Herausforderung', the date and the best time",
               "Tägliche Herausforderung:" in head and "%02d.%02d.%d" % (d, m, y) in head and "Bestzeit:" in head
               and mmss[:5] in head, repr(head))
+        check("pause: the best time in gold (the shortened stretch)",
+              "<color %s>%s</color>" % (P.CH_MEDAL_COLORS[0], mmss) in head, repr(head))
     else:
         seed = g.u32(P.CH_SEED0)
         track, st, share, char, values = P.challenge_draw(seed)
@@ -276,7 +296,7 @@ def run(g, out, daily):
     check("the fire key fires the can (active 7, held none)", (held, active) == (-1, P.POWERUP_CAN),
           "held %d, active %d" % (held, active))
     g.shot(os.path.join(out, "4a_can.png"))
-    ok = g.wait_overlay(0x0E, timeout=40)
+    ok, state = finish_state(g)
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
     check("the stretch is finished", ok)
     if not ok:
@@ -292,6 +312,7 @@ def run(g, out, daily):
           and not any("Runde" in t or "Gesamt" in t for t in texts), "%r, run %.2f s" % (texts, run_time))
     check("result overlay: 'Goldmedaille!' (the shortened stretch is far below gold)",
           any(t.endswith("Goldmedaille!</color>") for t in texts), repr(texts))
+    check("a medal: the driver cheers (car state 3: winner.anm, 'RACE_finish')", state == 3, "state %s" % state)
     if daily:        # the first run of the day
         check("result overlay: 'Neue Bestzeit!' in green", any(t == P.CH_R_NEW_COLOR % "Neue Bestzeit!" for t in texts),
               repr(texts))
@@ -337,7 +358,7 @@ def run(g, out, daily):
     while i32(g, car + P.CAR_HELD_POWERUP + 4) != P.POWERUP_CAN and time.time() - t0 < 3.0:
         for _ in range(50):
             g.write(ctl + 0x22, b"\x01")
-    ok = g.wait_overlay(0x0E, timeout=40)
+    ok, state = finish_state(g)
     g.write(G.INJECT, struct.pack("<3f", 0.0, 0.0, 0.0))
     check("the repeated stretch is finished", ok)
     if not ok:
@@ -347,6 +368,7 @@ def run(g, out, daily):
     print("-- result overlay, second run:", texts)
     g.shot(os.path.join(out, "4c_result_again.png"))
     check("result overlay: 'Keine Medaille' with the bronze time", "Keine Medaille (Bronze: 00:00:30)" in texts, repr(texts))
+    check("no medal: no cheering (car state 4, 'RACE_failure')", state == 4, "state %s" % state)
     if daily:
         run2 = f32(g, g.gp + P.PHANTOM_RUN + 0x58)
         best = f32(g, g.gp + P.DAILY_ENTRY + 8)
@@ -392,6 +414,11 @@ def run(g, out, daily):
     g.shot(os.path.join(out, "5_daily_again.png"))
     lines = [s for t, _, s in C.items(g) if t == 0]
     check("the page shows the best time of the day", any("Bestzeit heute" in s for s in lines))
+    best = f32(g, g.gp + P.DAILY_ENTRY + 8)
+    gold = "<color %s>%s</color>" % (P.CH_MEDAL_COLORS[0], time_text(best))
+    raw = [t for k, t in PL.items(g, g.menu) if k == 0]             # with the colour tags
+    check("the best time of the day in gold (the shortened stretch)",
+          any("Bestzeit heute" in t and gold in t for t in raw), repr([t for t in raw if "Bestzeit" in t]))
     check("the same draw again", settings_of(g) == drawn, "now %s, first %s" % (settings_of(g), drawn))
     n0 = g.init_count()
     press(g, P.CH_ITEM_NEXT, wait=0.2)
